@@ -7,3 +7,10 @@
 /frontend/node_modules/
 /frontend/build/
 /frontend/.env
+
+/project-preview-platform/node_modules/
+/project-preview-platform/dist/
+/project-preview-platform/builds/
+/project-preview-platform/.env
+/project-preview-platform/projects/
+/project-preview-platform/uploads/
