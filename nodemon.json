@@ -1,0 +1,17 @@
+{
+  "watch": ["server/"],
+  "ignore": [
+    "uploads/**/*",
+    "builds/**/*",
+    "projects/**/*",
+    "node_modules/**/*",
+    "client/**/*",
+    "*.log",
+    "*.tmp"
+  ],
+  "ext": "js,json",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": "1000"
+}
