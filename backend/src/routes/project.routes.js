@@ -1,6 +1,7 @@
 import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { authenticateToken } from "../middleware/auth.middleware.js";
+import { generateProjectHeader } from "../utils/headerUtils.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs-extra";
@@ -52,21 +53,325 @@ function sanitizeCommand(command) {
     return command;
 }
 
-function runCommand(command, cwd) {
-    const sanitizedCommand = sanitizeCommand(command);
-    console.log(`Running: ${sanitizedCommand}`);
+/**
+ * Parse git diff --name-status line into components
+ * Handles proper tab-separated format: "STATUS\tpath" or "STATUS\told_path\tnew_path"
+ */
+function parseGitDiffLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  
+  const tabIndex = trimmed.indexOf('\t');
+  if (tabIndex === -1) {
+    // Malformed line without tab - try to parse anyway
+    return parseMalformedGitLine(trimmed);
+  }
+  
+  const statusPart = trimmed.substring(0, tabIndex);
+  const pathPart = trimmed.substring(tabIndex + 1);
+  
+  // Extract status character and similarity score for renames/copies
+  const statusMatch = statusPart.match(/^([ACDMRTUX])(\d*)$/);
+  if (!statusMatch) {
+    return parseMalformedGitLine(trimmed);
+  }
+  
+  const [, statusChar, similarity] = statusMatch;
+  
+  // Handle rename/copy format: "old_path\tnew_path"
+  if (statusChar === 'R' || statusChar === 'C') {
+    const pathParts = pathPart.split('\t');
+    if (pathParts.length >= 2) {
+      return {
+        status: statusChar,
+        similarity: similarity ? parseInt(similarity, 10) : 100,
+        oldPath: pathParts[0],
+        newPath: pathParts[1],
+        filename: pathParts[1] // Use new path as primary
+      };
+    }
+  }
+  
+  return {
+    status: statusChar,
+    similarity: null,
+    oldPath: null,
+    newPath: pathPart,
+    filename: pathPart
+  };
+}
+
+/**
+ * Parse malformed git diff lines (fallback for broken parsing)
+ */
+function parseMalformedGitLine(line) {
+  const parts = line.trim().split(/\s+/);
+  
+  if (parts.length < 2) {
+    return {
+      status: 'M',
+      similarity: null,
+      oldPath: null,
+      newPath: parts[0] || '',
+      filename: parts[0] || ''
+    };
+  }
+  
+  // Try to extract status from first part
+  const statusChar = parts[0].charAt(0);
+  const validStatuses = ['A', 'C', 'D', 'M', 'R', 'T', 'U', 'X'];
+  
+  if (validStatuses.includes(statusChar)) {
+    const pathParts = parts.slice(1);
+    return generatePathCandidatesFromParts(statusChar, pathParts);
+  }
+  
+  // No valid status found - treat as modified file with complex path
+  return generatePathCandidatesFromParts('M', parts);
+}
+
+/**
+ * Generate path candidates from broken/malformed path parts
+ */
+function generatePathCandidatesFromParts(status, parts) {
+  const candidates = [];
+  const pathRegex = /^[^\/]*\/.*\.[a-zA-Z0-9]+$/;
+  
+  // Strategy 1: Find individual complete file paths
+  for (let i = 0; i < parts.length; i++) {
+    if (pathRegex.test(parts[i])) {
+      candidates.push(parts[i]);
+    }
+  }
+  
+  // Strategy 2: Reconstruct multi-word directory paths
+  for (let i = 0; i < parts.length; i++) {
+    for (let j = i + 1; j < parts.length; j++) {
+      const candidate = parts.slice(i, j + 1).join(' ');
+      if (pathRegex.test(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+  }
+  
+  // Strategy 3: Just use the last part as fallback
+  if (candidates.length === 0 && parts.length > 0) {
+    candidates.push(parts[parts.length - 1]);
+  }
+  
+  const primaryPath = candidates[0] || parts[parts.length - 1] || '';
+  
+  return {
+    status,
+    similarity: null,
+    oldPath: null,
+    newPath: primaryPath,
+    filename: primaryPath,
+    candidates: [...new Set(candidates)]
+  };
+}
+
+/**
+ * Get canonical file paths from git ls-tree (cached and size-limited)
+ */
+const canonicalPathsCache = new Map();
+const MAX_CANONICAL_PATHS = 5000; // Limit to prevent memory issues
+
+function getCanonicalPaths(commit, cwd) {
+  const cacheKey = `${commit}:${cwd}`;
+  
+  // Check cache first
+  if (canonicalPathsCache.has(cacheKey)) {
+    return canonicalPathsCache.get(cacheKey);
+  }
+  
+  try {
+    const output = execSync(`git ls-tree -r --name-only ${commit}`, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 10000 // 10 second timeout
+    });
+    
+    const paths = output
+      .trim()
+      .split('\n')
+      .filter(line => line)
+      .slice(0, MAX_CANONICAL_PATHS) // Limit number of paths
+      .map(line => {
+        // Handle git's quoted output format
+        if (line.startsWith('"') && line.endsWith('"')) {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return line.slice(1, -1); // Fallback: just remove quotes
+          }
+        }
+        return line;
+      });
+    
+    // Cache result (with TTL via size limit)
+    if (canonicalPathsCache.size > 10) {
+      canonicalPathsCache.clear(); // Simple cache eviction
+    }
+    canonicalPathsCache.set(cacheKey, paths);
+    
+    return paths;
+  } catch (error) {
+    console.warn(`Could not get canonical paths for commit ${commit}:`, error.message);
+    return [];
+  }
+}
+
+/**
+ * Generate candidate file paths with performance-optimized fallback strategies
+ */
+function getPathCandidates(rawPath, commit = null, cwd = null) {
+  const parsed = parseGitDiffLine(rawPath);
+  if (!parsed) return [];
+  
+  const candidates = [];
+  
+  // Add primary paths
+  if (parsed.newPath) candidates.push(parsed.newPath);
+  if (parsed.oldPath) candidates.push(parsed.oldPath);
+  
+  // Add any additional candidates from malformed parsing
+  if (parsed.candidates) {
+    candidates.push(...parsed.candidates);
+  }
+  
+  // PERFORMANCE FIX: Only do fuzzy matching for malformed inputs
+  // and limit the search to prevent infinite loops
+  if (commit && cwd && candidates.length === 0) {
+    
     try {
-        return execSync(sanitizedCommand, { cwd, encoding: "utf-8", env: process.env });
+      const canonicalPaths = getCanonicalPaths(commit, cwd);
+      
+      // Limit fuzzy matching to prevent performance issues
+      const maxFuzzyAttempts = 100;
+      let fuzzyAttempts = 0;
+      
+      for (const candidate of candidates.slice(0, 3)) { // Only check first 3 candidates
+        if (fuzzyAttempts >= maxFuzzyAttempts) break;
+        
+        const fuzzyMatches = canonicalPaths
+          .slice(0, 1000) // Limit canonical paths to search
+          .filter(canonical => {
+            fuzzyAttempts++;
+            return canonical.includes(candidate) || candidate.includes(canonical);
+          });
+        
+        candidates.push(...fuzzyMatches.slice(0, 5)); // Limit matches per candidate
+      }
     } catch (error) {
-        console.error(`Command failed: ${sanitizedCommand}`);
-        console.error(`Error: ${error.message}`);
+      console.warn(`Fuzzy matching failed for "${rawPath}":`, error.message);
+    }
+  }
+  
+  // Remove duplicates while preserving order and limit total candidates
+  return [...new Set(candidates.filter(Boolean))].slice(0, 10);
+}
+
+/**
+ * Safely quote a file path for use in git commands
+ * Handles special characters, spaces, and shell escaping
+ */
+function safeQuotePath(filePath) {
+  if (!filePath) return '""';
+  
+  // Escape internal quotes and wrap in quotes
+  const escaped = filePath.replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
+ * Check if a file path exists in a given commit using git cat-file
+ * This is the most reliable method according to Git documentation
+ */
+function pathExistsInCommit(commit, filePath, cwd) {
+  try {
+    const quotedPath = safeQuotePath(filePath);
+    execSync(`git cat-file -e ${commit}:${quotedPath}`, { 
+      cwd, 
+      stdio: "ignore" 
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find the best file path that actually exists in the commit
+ * Uses multiple strategies and canonical path validation
+ */
+function findValidPath(commit, rawPath, cwd) {
+  const candidates = getPathCandidates(rawPath, commit, cwd);
+  
+  // Try each candidate in order of preference
+  for (const candidate of candidates) {
+    if (pathExistsInCommit(commit, candidate, cwd)) {
+      return candidate;
+    }
+  }
+  
+  // If no valid path found, log warning and use first candidate
+  if (candidates.length > 0) {
+    console.warn(`⚠️ No valid path found for "${rawPath}", using first candidate: "${candidates[0]}"`);
+  }
+  return candidates[0] || rawPath;
+}
+
+/**
+ * Build a robust git show command with comprehensive path handling
+ * Implements all best practices from Git documentation
+ */
+function buildGitShowCommand(commit, rawPath, cwd) {
+  const validPath = findValidPath(commit, rawPath, cwd);
+  const quotedPath = safeQuotePath(validPath);
+  return `git show ${commit}:${quotedPath}`;
+}
+
+/**
+ * Legacy function for backwards compatibility
+ * Now uses the robust path finding logic
+ */
+function normalizeGitFilePath(rawPath) {
+  const candidates = getPathCandidates(rawPath);
+  const primaryPath = candidates[0] || rawPath;
+  return safeQuotePath(primaryPath);
+}
+
+function runCommand(command, cwd, options = {}) {
+  const sanitizedCommand = sanitizeCommand(command);
+  
+  const defaultOptions = {
+    cwd,
+    encoding: "utf-8",
+    env: process.env,
+    timeout: 30000, // 30 second default timeout
+    maxBuffer: 10 * 1024 * 1024 // 10MB max buffer to prevent memory issues
+  };
+  
+  const finalOptions = { ...defaultOptions, ...options };
+  
+  try {
+    return execSync(sanitizedCommand, finalOptions);
+    } catch (error) {
+    console.error(`Command failed: ${sanitizedCommand} - ${error.message}`);
+    
+    // Provide more specific error messages
+    if (error.code === 'TIMEOUT') {
+      throw new Error(`Command timed out after ${finalOptions.timeout}ms: ${sanitizedCommand}`);
+    } else if (error.message.includes('maxBuffer')) {
+      throw new Error(`Command output too large (>10MB): ${sanitizedCommand}`);
+    }
+    
         throw error;
     }
 }
 
 function findProjectRoot(dir) {
-    console.log('🔍 Searching for project root in:', dir);
-
     // Files/folders to ignore when searching for project root
     const ignoreList = [
         '.git',
@@ -86,7 +391,6 @@ function findProjectRoot(dir) {
     // Check if current directory has package.json
     const packageJsonPath = path.join(dir, 'package.json');
     if (fs.existsSync(packageJsonPath)) {
-        console.log('✅ Found package.json in root directory');
         return dir;
     }
 
@@ -97,14 +401,8 @@ function findProjectRoot(dir) {
         const isDirectory = fs.statSync(itemPath).isDirectory();
         const shouldIgnore = ignoreList.includes(item);
         
-        if (shouldIgnore) {
-            console.log(`🚫 Ignoring ${item} (in ignore list)`);
-        }
-        
         return isDirectory && !shouldIgnore;
     });
-
-    console.log('📁 Valid directories to search:', directories);
 
     // If there's only one directory, check if it contains the project
     if (directories.length === 1) {
@@ -112,7 +410,6 @@ function findProjectRoot(dir) {
         const subPackageJson = path.join(subDir, 'package.json');
 
         if (fs.existsSync(subPackageJson)) {
-            console.log(`✅ Found package.json in subdirectory: ${directories[0]}`);
             return subDir;
         }
 
@@ -127,7 +424,6 @@ function findProjectRoot(dir) {
         if (found) return found;
     }
 
-    console.log('❌ No project root found');
     return dir;
 }
 
@@ -190,8 +486,7 @@ async function createGithubRepo(repoName) {
     });
 
     if (response.status === 422) {
-        console.log("Repo already exists, skipping creation");
-        return;
+        return; // Repo already exists
     } else if (response.status === 401) {
         throw new Error('GitHub authentication failed. Please check your GITHUB_TOKEN.');
     } else if (response.status === 403) {
@@ -203,8 +498,6 @@ async function createGithubRepo(repoName) {
     } else if (!response.ok) {
         const error = await response.text();
         throw new Error(`GitHub repo creation failed: ${error}`);
-    } else {
-        console.log(`✅ GitHub repo '${repoName}' created`);
     }
 }
 
@@ -222,7 +515,6 @@ async function checkRepoExists(repoName) {
 }
 
 router.get("/", authenticateToken, async (req, res) => {
-  console.log("🚀 ~ req:", req)
   // List projects for user (admin: all, manager: assigned, client: access)
   const { id, role } = req.user;
   let projects;
@@ -298,11 +590,8 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
   const { version } = req.body; // Get version from request body
 
   try {
-    console.log('🚀 Upload request received for project ID:', projectId);
-
     // Only admin or assigned manager can upload
     const project = await prisma.project.findUnique({ where: { id: projectId } });
-    console.log('🚀 ~ project:', project)
     if (!project) return res.status(404).json({ error: "Project not found" });
 
     if (
@@ -338,15 +627,12 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
     }
 
     const zipPath = req.file.path;
-    console.log('📦 Uploaded file path:', zipPath);
-
     // Check if the uploaded file actually exists
     if (!fs.existsSync(zipPath)) {
       return res.status(400).json({ error: 'Uploaded file not found on server' });
     }
 
     const projectFolder = path.join(process.cwd(), "projects", String(projectId));
-    console.log('📁 Project directory:', projectFolder);
 
     // Use file locking to prevent concurrent uploads
     const result = await withProjectLock(validatedProjectName, async () => {
@@ -362,9 +648,7 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
         const isExistingProject = fs.existsSync(gitDir);
 
         if (isExistingProject) {
-          console.log('🔄 Updating existing project, preserving git history...');
-          // For existing projects, we need to be more careful
-          // Remove everything except .git directory
+          // For existing projects, remove everything except .git directory
           const items = fs.readdirSync(projectFolder);
           for (const item of items) {
             if (item !== '.git') {
@@ -373,22 +657,12 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
             }
           }
         } else {
-          console.log('🆕 New project, clearing directory...');
           // Clear the project directory completely for new projects
           fs.emptyDirSync(projectFolder);
         }
 
         // Extract zip file
         await extract(zipPath, { dir: projectFolder });
-        console.log('📁 Extracted files:', fs.readdirSync(projectFolder));
-        
-        // Debug: Show the structure of extracted files
-        const extractedItems = fs.readdirSync(projectFolder);
-        for (const item of extractedItems) {
-          const itemPath = path.join(projectFolder, item);
-          const isDir = fs.statSync(itemPath).isDirectory();
-          console.log(`📁 ${isDir ? '📂' : '📄'} ${item} ${isDir ? '(directory)' : '(file)'}`);
-        }
 
         // Verify extraction was successful
         const extractedFiles = fs.readdirSync(projectFolder);
@@ -398,17 +672,11 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
 
         // Detect actual project folder (where package.json exists)
         let actualProjectPath = findProjectRoot(projectFolder);
-        console.log('🔍 Final actual project path:', actualProjectPath);
 
         // Validate that it's a React project
         const packageJsonPath = path.join(actualProjectPath, 'package.json');
-        console.log('🔍 Looking for package.json at:', packageJsonPath);
-        console.log('🔍 Package.json exists:', fs.existsSync(packageJsonPath));
         
         if (!fs.existsSync(packageJsonPath)) {
-          // List all files in the actual project path for debugging
-          const filesInPath = fs.readdirSync(actualProjectPath);
-          console.log('📁 Files in actual project path:', filesInPath);
           throw new Error(`Not a valid React project: package.json not found at ${packageJsonPath}`);
         }
 
@@ -423,7 +691,7 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
           throw new Error('Not a valid React project: build script not found in package.json');
         }
 
-        // Find and inject Marker.io script into root HTML file
+        // Find and inject scripts/components into root HTML file
         const htmlFiles = ['index.html', 'public/index.html', 'src/index.html'];
         let rootHtmlPath = null;
         
@@ -448,45 +716,61 @@ window.markerConfig = {
           !function(e,r,a){if(!e.__Marker){e.__Marker={};var t=[],n={__cs:t};["show","hide","isVisible","capture","cancelCapture","unload","reload","isExtensionInstalled","setReporter","setCustomData","on","off"].forEach(function(e){n[e]=function(){var r=Array.prototype.slice.call(arguments);r.unshift(e),t.push(r)}}),e.Marker=n;var s=r.createElement("script");s.async=1,s.src="https://edge.marker.io/latest/shim.js";var i=r.getElementsByTagName("script")[0];i.parentNode.insertBefore(s,i)}}(window,document);
 </script>`;
 
-            // Check if script is already injected to avoid duplicates
+            // Get project header HTML using helper function
+            const projectHeader = generateProjectHeader();
+
+            let hasChanges = false;
+
+            // Check if Marker.io script is already injected to avoid duplicates
             if (!htmlContent.includes('window.markerConfig')) {
-              // Inject script before closing head tag
+              // Inject Marker.io script before closing head tag
               if (htmlContent.includes('</head>')) {
                 htmlContent = htmlContent.replace('</head>', `${markerScript}\n</head>`);
               } else if (htmlContent.includes('<head>')) {
-                // If no closing head tag, inject after opening head tag
                 htmlContent = htmlContent.replace('<head>', `<head>\n${markerScript}`);
               } else {
-                // If no head tag at all, add it at the beginning of body or after html tag
                 if (htmlContent.includes('<body>')) {
                   htmlContent = htmlContent.replace('<body>', `<head>\n${markerScript}\n</head>\n<body>`);
                 } else if (htmlContent.includes('<html>')) {
                   htmlContent = htmlContent.replace('<html>', `<html>\n<head>\n${markerScript}\n</head>`);
                 }
               }
-              
+              hasChanges = true;
+            }
+
+            // Check if project header is already injected to avoid duplicates
+            if (!htmlContent.includes('zip-sync-header')) {
+              // Inject project header after opening body tag
+              if (htmlContent.includes('<body>')) {
+                htmlContent = htmlContent.replace('<body>', `<body>\n${projectHeader}`);
+              } else if (htmlContent.includes('<body ')) {
+                // Handle body tag with attributes
+                htmlContent = htmlContent.replace(/<body([^>]*)>/, `<body$1>\n${projectHeader}`);
+              } else {
+                // Fallback: add to end of head or create body
+                if (htmlContent.includes('</head>')) {
+                  htmlContent = htmlContent.replace('</head>', `</head>\n<body>\n${projectHeader}\n</body>`);
+                }
+              }
+              hasChanges = true;
+            }
+
+            if (hasChanges) {
               fs.writeFileSync(rootHtmlPath, htmlContent, 'utf-8');
-              console.log('✅ Marker.io script injected into:', rootHtmlPath);
-            } else {
-              console.log('ℹ️  Marker.io script already present in:', rootHtmlPath);
             }
           } catch (error) {
-            console.error('❌ Error injecting Marker.io script:', error.message);
-            // Continue with build process even if script injection fails
+            console.error('❌ Error injecting scripts/components:', error.message);
+            // Continue with build process even if injection fails
           }
-        } else {
-          console.log('⚠️  No root HTML file found to inject Marker.io script');
         }
 
         // Build React app
-        console.log('Installing dependencies...');
         try {
           runCommand("npm install", actualProjectPath);
         } catch (error) {
           throw new Error(`Dependency installation failed: ${error.message}`);
         }
 
-        console.log('Building React app...');
         try {
           runCommand("npm run build", actualProjectPath);
         } catch (error) {
@@ -501,17 +785,11 @@ window.markerConfig = {
 
         // Check if repository exists
         const repoExists = await checkRepoExists(validatedProjectName);
-        console.log('🔍 Repository exists:', repoExists);
 
         // Git setup - use the isExistingProject we determined earlier
         const isNewRepo = !isExistingProject;
-        console.log('🔍 Project directory:', projectFolder);
-        console.log('🔍 .git directory exists:', isExistingProject);
-        console.log('🔍 Is new repository:', isNewRepo);
-        console.log('🔍 GitHub repo exists:', repoExists);
 
         if (isNewRepo) {
-          console.log('🆕 Initializing new Git repository...');
           runCommand("git init", projectFolder);
           runCommand("git branch -m main", projectFolder);
 
@@ -527,8 +805,6 @@ window.markerConfig = {
           const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${validatedProjectName}.git`;
           runCommand(`git remote add origin ${remoteUrl}`, projectFolder);
         } else {
-          console.log('🔄 Using existing Git repository...');
-
           // Set git config for existing repos
           runCommand('git config user.name "GitHub Zip Worker"', projectFolder);
           runCommand('git config user.email "worker@github-zip.com"', projectFolder);
@@ -536,16 +812,13 @@ window.markerConfig = {
           // Check if remote exists and add if needed
           try {
             runCommand("git remote -v", projectFolder);
-            console.log('✅ Remote already configured');
           } catch (error) {
-            console.log('⚠️ No remote configured, adding origin...');
             const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${validatedProjectName}.git`;
             runCommand(`git remote add origin ${remoteUrl}`, projectFolder);
           }
         }
 
         // Commit changes
-        console.log('📝 Committing project content...');
         runCommand("git add .", projectFolder);
 
         try {
@@ -553,11 +826,8 @@ window.markerConfig = {
             ? `Initial project upload at ${new Date().toISOString()}`
             : `Update project from zip upload at ${new Date().toISOString()}`;
           runCommand(`git commit -m "${commitMessage}"`, projectFolder);
-          console.log('✅ Changes committed successfully');
         } catch (error) {
-          if (error.message.includes('nothing to commit') || error.message.includes('no changes added to commit')) {
-            console.log("⚠️ Nothing new to commit, skipping...");
-          } else {
+          if (!error.message.includes('nothing to commit') && !error.message.includes('no changes added to commit')) {
             throw new Error(`Commit failed: ${error.message}`);
           }
         }
@@ -567,15 +837,11 @@ window.markerConfig = {
         runCommand(`git tag ${tag}`, projectFolder);
 
         // Push to GitHub
-        console.log('🚀 Pushing to GitHub...');
-
         try {
           if (isNewRepo) {
             runCommand("git push -u origin main --tags", projectFolder);
-            console.log('✅ Successfully pushed new repository to GitHub');
           } else {
             runCommand("git push origin main --tags", projectFolder);
-            console.log('✅ Successfully pushed updates to GitHub');
           }
         } catch (pushError) {
           console.error('❌ Push failed:', pushError.message);
@@ -637,11 +903,7 @@ window.markerConfig = {
         };
 
       } catch (error) {
-        // Clean up on error
-        if (fs.existsSync(projectFolder)) {
-          console.log('Cleaning up project directory due to error...');
-          // Keep directory for debugging, but log the error
-        }
+        // Clean up on error - keep directory for debugging
         throw error;
       }
     });
@@ -766,8 +1028,6 @@ router.get("/:id/diff-summary", authenticateToken, async (req, res) => {
   const { id: userId, role } = req.user;
 
   try {
-    console.log("🔍 Diff request for project ID:", projectId);
-
     // Check access
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ error: "Project not found" });
@@ -817,8 +1077,6 @@ router.get("/:id/diff-summary", authenticateToken, async (req, res) => {
       projectFolder
     );
 
-    console.log("📡 Forwarding diff to n8n webhook...");
-
     // Call n8n webhook
     const webhookResponse = await fetch(
       "https://workflow.yorkdevs.link/webhook/generatesummary",
@@ -847,6 +1105,373 @@ router.get("/:id/diff-summary", authenticateToken, async (req, res) => {
   } catch (err) {
     console.error("Diff + summary error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Get detailed git diff with individual file changes
+router.get("/:id/git-diff", authenticateToken, async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  const { id: userId, role } = req.user;
+
+  // PERFORMANCE SAFEGUARD: Set overall timeout for the entire operation
+  const operationStartTime = Date.now();
+  const MAX_OPERATION_TIME = 5 * 60 * 1000; // 5 minutes max
+  
+  const checkTimeout = () => {
+    if (Date.now() - operationStartTime > MAX_OPERATION_TIME) {
+      throw new Error('Git diff operation timed out after 5 minutes');
+    }
+  };
+
+  try {
+    // Check access (same as diff-summary)
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    let hasAccess = false;
+    if (role === "admin") hasAccess = true;
+    else if (role === "manager" && project.assignedManagerId === userId) hasAccess = true;
+    else if (role === "client") {
+      const access = await prisma.projectAccess.findFirst({
+        where: { projectId, userId }
+      });
+      if (access) hasAccess = true;
+    }
+    if (!hasAccess) return res.status(403).json({ error: "Forbidden" });
+
+    // Get project folder path
+    const projectFolder = path.join(process.cwd(), "projects", String(projectId));
+    
+    // Ensure project exists
+    if (!fs.existsSync(projectFolder)) {
+      return res.status(404).json({ error: "Project folder not found" });
+    }
+
+    const gitDir = path.join(projectFolder, ".git");
+    if (!fs.existsSync(gitDir)) {
+      return res.status(400).json({ error: "Not a git repository" });
+    }
+
+    // Get last 2 commit hashes
+    const logOutput = runCommand(
+      "git log -2 --pretty=format:%H",
+      projectFolder
+    );
+    const commits = logOutput.trim().split("\n");
+
+    if (commits.length < 2) {
+      return res.status(400).json({ error: "Not enough commits to generate a diff" });
+    }
+
+    const [latestCommit, previousCommit] = commits;
+
+    // Get list of changed files with their status
+    const changedFilesOutput = runCommand(
+      `git diff --name-status ${previousCommit} ${latestCommit}`,
+      projectFolder
+    );
+
+    // Get diff stats (additions/deletions per file)
+    const diffStatsOutput = runCommand(
+      `git diff --numstat ${previousCommit} ${latestCommit}`,
+      projectFolder
+    );
+
+    // Parse changed files
+    const changedFiles = [];
+    const fileLines = changedFilesOutput.trim().split("\n").filter(line => line);
+    const statsLines = diffStatsOutput.trim().split("\n").filter(line => line);
+
+    // Create a map of file stats
+    const statsMap = {};
+    statsLines.forEach(line => {
+      const parts = line.split("\t");
+      if (parts.length === 3) {
+        const [additions, deletions, filename] = parts;
+        statsMap[filename] = {
+          additions: additions === "-" ? 0 : parseInt(additions, 10),
+          deletions: deletions === "-" ? 0 : parseInt(deletions, 10)
+        };
+      }
+    });
+
+    // PERFORMANCE SAFEGUARD: Limit number of files processed to prevent infinite loops
+    const MAX_FILES_TO_PROCESS = 1000;
+    const totalFiles = fileLines.length;
+    
+    if (totalFiles > MAX_FILES_TO_PROCESS) {
+      console.warn(`⚠️ Large diff detected: ${totalFiles} files changed. Processing first ${MAX_FILES_TO_PROCESS} files only.`);
+    }
+    
+    const filesToProcess = Math.min(totalFiles, MAX_FILES_TO_PROCESS);
+    
+    // Process each changed file using robust parsing
+    for (let i = 0; i < filesToProcess; i++) {
+      // PERFORMANCE SAFEGUARD: Check timeout periodically
+      if (i % 50 === 0) { // Check every 50 files
+        checkTimeout();
+      }
+      
+      const line = fileLines[i];
+      
+      // Parse git diff line using the robust parser
+      const parsed = parseGitDiffLine(line);
+      if (!parsed) {
+        console.warn(`Could not parse git diff line: ${line}`);
+        continue;
+      }
+      
+      const statusChar = parsed.status;
+      const filename = parsed.filename;
+      const oldPath = parsed.oldPath;
+      const newPath = parsed.newPath;
+      
+      // PERFORMANCE SAFEGUARD: Skip files that are too large or binary early
+      if (!filename || filename.length > 500) {
+        console.warn(`Skipping file with invalid or too long filename: ${filename?.substring(0, 100)}...`);
+        continue;
+      }
+      
+      // Skip binary files and very large files
+      const filePath = path.join(projectFolder, filename);
+      let isLargeFile = false;
+      let isBinaryFile = false;
+
+      // Check if file exists and get size (with performance safeguards)
+      if (fs.existsSync(filePath)) {
+        try {
+        const stats = fs.statSync(filePath);
+        isLargeFile = stats.size > 100000; // 100KB limit
+        
+          // PERFORMANCE SAFEGUARD: Skip extremely large files completely
+          if (stats.size > 10 * 1024 * 1024) { // 10MB limit
+            console.warn(`Skipping extremely large file: ${filename} (${(stats.size / 1024 / 1024).toFixed(1)}MB)`);
+            continue;
+          }
+          
+          // Simple binary file check (but limit read size)
+          if (!isLargeFile) {
+            try {
+              const buffer = fs.readFileSync(filePath, { encoding: null, flag: 'r' }).slice(0, 8192); // Read only first 8KB
+          isBinaryFile = buffer.includes(0);
+        } catch (error) {
+          console.warn(`Could not read file ${filename}:`, error.message);
+          isBinaryFile = true;
+            }
+          }
+        } catch (error) {
+          console.warn(`Could not stat file ${filename}:`, error.message);
+          isLargeFile = true;
+        }
+      }
+
+      let oldValue = "";
+      let newValue = "";
+
+      if (!isBinaryFile && !isLargeFile) {
+        try {
+          // PERFORMANCE SAFEGUARD: Use shorter timeout for git show commands
+          const gitShowOptions = {
+            timeout: 10000, // 10 second timeout for individual files
+            maxBuffer: 5 * 1024 * 1024 // 5MB max for individual files
+          };
+          
+          // Get file content from previous commit
+          if (statusChar !== "A") { // Not a new file
+            try {
+              // For renames, use the old path for the previous commit
+              const pathForPrevCommit = oldPath || filename;
+              const gitShowCommand = buildGitShowCommand(previousCommit, pathForPrevCommit, projectFolder);
+              oldValue = runCommand(gitShowCommand, projectFolder, gitShowOptions);
+            } catch (error) {
+              console.log(`Could not get old content for ${filename}:`, error.message);
+              oldValue = "";
+            }
+          }
+
+          // Get file content from latest commit
+          if (statusChar !== "D") { // Not a deleted file
+            try {
+              // For renames, use the new path for the latest commit
+              const pathForLatestCommit = newPath || filename;
+              const gitShowCommand = buildGitShowCommand(latestCommit, pathForLatestCommit, projectFolder);
+              newValue = runCommand(gitShowCommand, projectFolder, gitShowOptions);
+            } catch (error) {
+              console.log(`Could not get new content for ${filename}:`, error.message);
+              newValue = "";
+            }
+          }
+        } catch (error) {
+          console.log(`Error processing file ${filename}:`, error.message);
+          isLargeFile = true; // Treat as large file if we can't process it
+        }
+      }
+
+      // Determine file status
+      let fileStatus;
+      switch (statusChar) {
+        case "A":
+          fileStatus = "added";
+          break;
+        case "D":
+          fileStatus = "deleted";
+          break;
+        case "M":
+          fileStatus = "modified";
+          break;
+        case "R":
+          fileStatus = "renamed";
+          break;
+        case "C":
+          fileStatus = "copied";
+          break;
+        default:
+          fileStatus = "modified";
+      }
+
+      const fileStats = statsMap[filename] || { additions: 0, deletions: 0 };
+
+      changedFiles.push({
+        id: i + 1,
+        filename: path.basename(filename),
+        path: filename,
+        status: fileStatus,
+        additions: fileStats.additions,
+        deletions: fileStats.deletions,
+        oldValue: isLargeFile || isBinaryFile ? "" : oldValue,
+        newValue: isLargeFile || isBinaryFile ? "" : newValue,
+        isLargeFile: isLargeFile,
+        isBinaryFile: isBinaryFile
+      });
+    }
+
+    // Calculate total stats
+    const totalAdditions = changedFiles.reduce((sum, file) => sum + file.additions, 0);
+    const totalDeletions = changedFiles.reduce((sum, file) => sum + file.deletions, 0);
+    
+    // Calculate processing summary
+    const processingTime = Date.now() - operationStartTime;
+    const wasLimitedByFileCount = totalFiles > MAX_FILES_TO_PROCESS;
+
+    res.json({
+      projectId,
+      projectName: project.name,
+      repository: `https://github.com/${GITHUB_USERNAME}/${project.name}`,
+      from: previousCommit,
+      to: latestCommit,
+      files: changedFiles,
+      totalFiles: changedFiles.length,
+      totalFilesAvailable: totalFiles,
+      wasLimited: wasLimitedByFileCount,
+      totalAdditions,
+      totalDeletions,
+      processingTimeMs: processingTime
+    });
+
+  } catch (err) {
+    console.error("Git diff error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API endpoint to get project info for header display
+router.get("/:id/info", async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  
+  try {
+    // Get project basic info
+    const project = await prisma.project.findUnique({ 
+      where: { id: projectId },
+      select: { 
+        id: true, 
+        name: true,
+        
+      }
+    });
+    
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    // Get active version
+    const activeVersion = await prisma.projectVersion.findFirst({
+      where: { projectId, isActive: true },
+      select: { version: true, createdAt: true }
+    });
+
+    res.json({
+      id: project.id,
+      name: project.name,
+      version: activeVersion?.version || "1.0.0",
+      lastUpdated: activeVersion?.createdAt || null,
+      locked: project.isLocked || false
+    });
+  } catch (error) {
+    console.error('Error fetching project info:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// API endpoint to lock/unlock a project
+router.post("/:id/lock", authenticateToken, async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  const { locked } = req.body;
+  const { id: userId, role } = req.user;
+  
+  try {
+    // Check if project exists and user has permission
+    const project = await prisma.project.findUnique({ 
+      where: { id: projectId },
+      select: { 
+        id: true, 
+        name: true,
+        assignedManagerId: true,
+        isLocked: true
+      }
+    });
+    
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    // Check permissions - only admin or assigned manager can lock/unlock
+    let hasPermission = false;
+    if (role === "admin") {
+      hasPermission = true;
+    } else if (role === "manager" && project.assignedManagerId === userId) {
+      hasPermission = true;
+    }
+    
+    if (!hasPermission) {
+      return res.status(403).json({ error: "Forbidden: You don't have permission to lock/unlock this project" });
+    }
+
+    // Validate locked parameter
+    if (typeof locked !== 'boolean') {
+      return res.status(400).json({ error: "Invalid 'locked' parameter. Must be true or false." });
+    }
+
+    // Update project lock status
+    const updatedProject = await prisma.project.update({
+      where: { id: projectId },
+      data: { isLocked: locked },
+      select: { 
+        id: true, 
+        name: true, 
+        isLocked: true 
+      }
+    });
+
+
+    res.json({
+      message: `Project ${locked ? 'locked' : 'unlocked'} successfully`,
+      projectId: updatedProject.id,
+      projectName: updatedProject.name,
+      locked: updatedProject.isLocked
+    });
+  } catch (error) {
+    console.error('Error updating project lock status:', error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

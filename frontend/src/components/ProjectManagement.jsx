@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { fetchProjects, createProject } from '../api';
 import { useAuth } from '../context/AuthContext';
 import DiffModal from './DiffModal';
@@ -6,6 +7,7 @@ import ProjectActionsDropdown from './ProjectActionsDropdown';
 
 const ProjectManagement = ({ setActiveTab }) => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     console.log('ProjectManagement user:', user);
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -249,6 +251,9 @@ const ProjectManagement = ({ setActiveTab }) => {
                                             user={user}
                                             onGitDiff={() => setDiffModal({ isOpen: true, projectId: project.id, projectName: project.name })}
                                         />
+                                        {/* <button className="btn btn-outline">
+                                            Edit
+                                        </button> */}
                                     </div>
                                 </div>
                             ))}
