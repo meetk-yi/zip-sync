@@ -45,7 +45,7 @@ npm install
 npm run dev
 ```
 
-4. Open your browser and navigate to `http://localhost:5173`
+4. Open your browser and navigate to `http://13.203.192.57:5173`
 
 ### Building for Production
 

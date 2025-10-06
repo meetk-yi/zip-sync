@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://13.203.192.57:5000';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -198,6 +198,9 @@ export const toggleReleaseLock = async (releaseId, locked) => {
 
 // Function to upload ZIP to a release
 export const uploadToRelease = async (releaseId, file, version = null) => {
+    console.log(`🌐 [API UPLOAD] Starting API call for release ${releaseId}`);
+    console.log(`📁 [API UPLOAD] File: ${file.name} (${file.size} bytes), Version: ${version || 'auto'}`);
+    
     try {
         const formData = new FormData();
         formData.append('project', file);
@@ -205,13 +208,23 @@ export const uploadToRelease = async (releaseId, file, version = null) => {
             formData.append('version', version);
         }
         
+        console.log(`📤 [API UPLOAD] Sending request to /api/releases/${releaseId}/upload`);
         const response = await api.post(`/api/releases/${releaseId}/upload`, formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },
         });
+        
+        console.log(`✅ [API UPLOAD] Upload successful, response received`);
+        console.log(`📊 [API UPLOAD] Response data:`, response.data);
         return response.data;
     } catch (error) {
+        console.log(`❌ [API UPLOAD] Upload failed:`, error);
+        console.log(`🔍 [API UPLOAD] Error details:`, {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data
+        });
         throw error.response?.data || { error: 'Failed to upload to release' };
     }
 };

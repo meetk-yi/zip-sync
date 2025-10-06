@@ -92,11 +92,16 @@ const ReleaseManagement = ({ projectId, projectName }) => {
         e.preventDefault();
         if (!selectedRelease || !uploadFile) return;
 
+        console.log(`🚀 [FRONTEND UPLOAD] Starting upload process`);
+        console.log(`📦 [FRONTEND UPLOAD] Release ID: ${selectedRelease}, File: ${uploadFile.name} (${uploadFile.size} bytes), Version: ${version || 'auto'}`);
+
         try {
             setUploading(true);
             setUploadStatus('Uploading and building project...');
             setUploadProgress(0);
             showInfo('Uploading and building project...');
+
+            console.log(`📤 [FRONTEND UPLOAD] Initiating upload to release ${selectedRelease}...`);
 
             // Simulate progress
             const progressInterval = setInterval(() => {
@@ -114,6 +119,9 @@ const ReleaseManagement = ({ projectId, projectName }) => {
             clearInterval(progressInterval);
             setUploadProgress(100);
 
+            console.log(`✅ [FRONTEND UPLOAD] Upload successful!`);
+            console.log(`📊 [FRONTEND UPLOAD] Result:`, result);
+
             setUploadStatus(`✅ Upload successful! Version: ${result.version.version} - Build URL: ${result.buildUrl}`);
             setUploadFile(null);
             setSelectedRelease('');
@@ -122,11 +130,13 @@ const ReleaseManagement = ({ projectId, projectName }) => {
             await loadReleases();
             showSuccess(`Project uploaded successfully! Version: ${result.version.version}`);
         } catch (err) {
+            console.log(`❌ [FRONTEND UPLOAD] Upload failed:`, err);
             const errorMessage = err.error || err.message || 'Upload failed';
             setUploadStatus(`❌ Upload failed: ${errorMessage}`);
             showError(`Upload failed: ${errorMessage}`);
         } finally {
             setUploading(false);
+            console.log(`🏁 [FRONTEND UPLOAD] Upload process completed`);
         }
     };
 

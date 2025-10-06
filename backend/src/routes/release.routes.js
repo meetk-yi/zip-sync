@@ -458,8 +458,12 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
     const { role, id: userId } = req.user;
     const { version } = req.body;
 
+    console.log(`🚀 [RELEASE UPLOAD] Starting upload process for release ${releaseId} by user ${userId} (${role})`);
+    console.log(`📦 [RELEASE UPLOAD] Upload details: version=${version || 'auto-generated'}, file=${req.file?.originalname || 'none'}`);
+
     try {
         // Check if release exists and is not locked
+        console.log(`🔍 [RELEASE UPLOAD] Looking up release ${releaseId}...`);
         const release = await prisma.release.findUnique({
             where: { id: releaseId },
             include: {
@@ -469,28 +473,48 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
             }
         });
 
-        if (!release) return res.status(404).json({ error: "Release not found" });
+        if (!release) {
+            console.log(`❌ [RELEASE UPLOAD] Release ${releaseId} not found`);
+            return res.status(404).json({ error: "Release not found" });
+        }
+
+        console.log(`✅ [RELEASE UPLOAD] Found release: "${release.name}" for project "${release.project.name}" (ID: ${release.project.id})`);
 
         // Check if release is locked
         if (release.isLocked) {
+            console.log(`🔒 [RELEASE UPLOAD] Release ${releaseId} is locked - upload rejected`);
             return res.status(400).json({ error: "Cannot upload to a locked release. Create a new release instead." });
         }
+
+        console.log(`🔓 [RELEASE UPLOAD] Release ${releaseId} is unlocked - proceeding with upload`);
 
         // Check permissions
         let hasAccess = false;
         if (role === "admin") hasAccess = true;
         else if (role === "manager" && release.project.assignedManagerId === userId) hasAccess = true;
         
-        if (!hasAccess) return res.status(403).json({ error: "Forbidden" });
+        if (!hasAccess) {
+            console.log(`🚫 [RELEASE UPLOAD] Access denied for user ${userId} (${role}) to release ${releaseId}`);
+            return res.status(403).json({ error: "Forbidden" });
+        }
 
-        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+        console.log(`✅ [RELEASE UPLOAD] Access granted for user ${userId} (${role})`);
+
+        if (!req.file) {
+            console.log(`❌ [RELEASE UPLOAD] No file uploaded`);
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        console.log(`📁 [RELEASE UPLOAD] File received: ${req.file.originalname} (${req.file.size} bytes, ${req.file.mimetype})`);
 
         // Validate project name for GitHub repo
         const validatedProjectName = validateProjectName(release.project.name);
+        console.log(`🏷️ [RELEASE UPLOAD] Validated project name: "${validatedProjectName}"`);
 
         // Generate version if not provided
         let versionNumber = version;
         if (!versionNumber) {
+            console.log(`🔢 [RELEASE UPLOAD] No version provided, generating automatically...`);
             const existingVersions = await prisma.projectVersion.findMany({
                 where: { releaseId },
                 orderBy: { createdAt: 'desc' },
@@ -499,26 +523,38 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
             
             if (existingVersions.length === 0) {
                 versionNumber = "1.0.0";
+                console.log(`🆕 [RELEASE UPLOAD] First version for release: ${versionNumber}`);
             } else {
                 const lastVersion = existingVersions[0].version;
                 const parts = lastVersion.split('.');
                 const patch = parseInt(parts[2]) + 1;
                 versionNumber = `${parts[0]}.${parts[1]}.${patch}`;
+                console.log(`📈 [RELEASE UPLOAD] Incremented version from ${lastVersion} to ${versionNumber}`);
             }
+        } else {
+            console.log(`📌 [RELEASE UPLOAD] Using provided version: ${versionNumber}`);
         }
 
         const zipPath = req.file.path;
         if (!fs.existsSync(zipPath)) {
+            console.log(`❌ [RELEASE UPLOAD] Uploaded file not found at path: ${zipPath}`);
             return res.status(400).json({ error: 'Uploaded file not found on server' });
         }
 
+        console.log(`✅ [RELEASE UPLOAD] File validated at path: ${zipPath}`);
+
         const projectFolder = path.join(process.cwd(), "projects", String(release.project.id));
+        console.log(`📂 [RELEASE UPLOAD] Project folder: ${projectFolder}`);
 
         // Use file locking to prevent concurrent uploads
+        console.log(`🔒 [RELEASE UPLOAD] Acquiring project lock for: ${validatedProjectName}`);
         const result = await withProjectLock(validatedProjectName, async () => {
+            console.log(`✅ [RELEASE UPLOAD] Project lock acquired, starting processing...`);
             try {
                 // Validate zip file
+                console.log(`🔍 [RELEASE UPLOAD] Validating zip file...`);
                 const stats = fs.statSync(zipPath);
+                console.log(`📊 [RELEASE UPLOAD] Zip file size: ${stats.size} bytes`);
                 if (stats.size === 0) {
                     throw new Error('Zip file is empty');
                 }
@@ -526,43 +562,55 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
                 // Check if this is an existing project with git history
                 const gitDir = path.join(projectFolder, '.git');
                 const isExistingProject = fs.existsSync(gitDir);
+                console.log(`🔍 [RELEASE UPLOAD] Existing project check: ${isExistingProject ? 'YES' : 'NO'}`);
 
                 if (isExistingProject) {
+                    console.log(`🔄 [RELEASE UPLOAD] Cleaning existing project (preserving .git)...`);
                     // For existing projects, remove everything except .git directory
                     const items = fs.readdirSync(projectFolder);
                     for (const item of items) {
                         if (item !== '.git') {
                             const itemPath = path.join(projectFolder, item);
                             fs.removeSync(itemPath);
+                            console.log(`🗑️ [RELEASE UPLOAD] Removed: ${item}`);
                         }
                     }
                 } else {
+                    console.log(`🆕 [RELEASE UPLOAD] Creating new project directory...`);
                     // Clear the project directory completely for new projects
                     fs.emptyDirSync(projectFolder);
                 }
 
                 // Extract zip file
+                console.log(`📦 [RELEASE UPLOAD] Extracting zip file to: ${projectFolder}`);
                 await extract(zipPath, { dir: projectFolder });
+                console.log(`✅ [RELEASE UPLOAD] Zip extraction completed`);
 
                 // Verify extraction was successful
                 const extractedFiles = fs.readdirSync(projectFolder);
+                console.log(`📁 [RELEASE UPLOAD] Extracted files: ${extractedFiles.join(', ')}`);
                 if (extractedFiles.length === 0) {
                     throw new Error('Zip file extraction resulted in empty directory');
                 }
 
                 // Detect actual project folder
+                console.log(`🔍 [RELEASE UPLOAD] Detecting project root...`);
                 let actualProjectPath = findProjectRoot(projectFolder);
+                console.log(`📂 [RELEASE UPLOAD] Project root detected at: ${actualProjectPath}`);
 
                 // Validate that it's a React project
                 const packageJsonPath = path.join(actualProjectPath, 'package.json');
+                console.log(`📄 [RELEASE UPLOAD] Checking for package.json at: ${packageJsonPath}`);
                 
                 if (!fs.existsSync(packageJsonPath)) {
                     throw new Error(`Not a valid React project: package.json not found at ${packageJsonPath}`);
                 }
 
+                console.log(`✅ [RELEASE UPLOAD] package.json found, validating content...`);
                 let packageJson;
                 try {
                     packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+                    console.log(`📦 [RELEASE UPLOAD] Project name: ${packageJson.name || 'unnamed'}`);
                 } catch (error) {
                     throw new Error('Invalid package.json file');
                 }
@@ -570,6 +618,8 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
                 if (!packageJson.scripts || !packageJson.scripts.build) {
                     throw new Error('Not a valid React project: build script not found in package.json');
                 }
+
+                console.log(`✅ [RELEASE UPLOAD] Valid React project detected with build script`);
 
                 // Find and inject scripts/components into root HTML file
                 const htmlFiles = ['index.html', 'public/index.html', 'src/index.html'];
@@ -645,15 +695,21 @@ window.markerConfig = {
                 }
 
                 // Build React app
+                console.log(`📦 [RELEASE UPLOAD] Installing dependencies...`);
                 try {
                     runCommand("npm install", actualProjectPath);
+                    console.log(`✅ [RELEASE UPLOAD] Dependencies installed successfully`);
                 } catch (error) {
+                    console.log(`❌ [RELEASE UPLOAD] Dependency installation failed: ${error.message}`);
                     throw new Error(`Dependency installation failed: ${error.message}`);
                 }
 
+                console.log(`🔨 [RELEASE UPLOAD] Building React application...`);
                 try {
                     runCommand("npm run build", actualProjectPath);
+                    console.log(`✅ [RELEASE UPLOAD] Build completed successfully`);
                 } catch (error) {
+                    console.log(`❌ [RELEASE UPLOAD] Build failed: ${error.message}`);
                     throw new Error(`Build failed: ${error.message}`);
                 }
 
@@ -664,83 +720,112 @@ window.markerConfig = {
                 }
 
                 // Check if repository exists
+                console.log(`🔍 [RELEASE UPLOAD] Checking if GitHub repository exists: ${validatedProjectName}`);
                 const repoExists = await checkRepoExists(validatedProjectName);
+                console.log(`📊 [RELEASE UPLOAD] Repository exists: ${repoExists ? 'YES' : 'NO'}`);
 
                 // Git setup
                 const isNewRepo = !isExistingProject;
+                console.log(`🆕 [RELEASE UPLOAD] New repository: ${isNewRepo ? 'YES' : 'NO'}`);
 
                 if (isNewRepo) {
+                    console.log(`🔧 [RELEASE UPLOAD] Setting up new Git repository...`);
                     runCommand("git init", projectFolder);
                     runCommand("git branch -m main", projectFolder);
                     runCommand('git config user.name "GitHub Zip Worker"', projectFolder);
                     runCommand('git config user.email "worker@github-zip.com"', projectFolder);
 
                     if (!repoExists) {
+                        console.log(`🆕 [RELEASE UPLOAD] Creating new GitHub repository: ${validatedProjectName}`);
                         await createGithubRepo(validatedProjectName);
+                        console.log(`✅ [RELEASE UPLOAD] GitHub repository created successfully`);
                     }
 
                     const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${validatedProjectName}.git`;
+                    console.log(`🔗 [RELEASE UPLOAD] Adding remote origin: ${remoteUrl}`);
                     runCommand(`git remote add origin ${remoteUrl}`, projectFolder);
                 } else {
+                    console.log(`🔄 [RELEASE UPLOAD] Updating existing Git repository...`);
                     runCommand('git config user.name "GitHub Zip Worker"', projectFolder);
                     runCommand('git config user.email "worker@github-zip.com"', projectFolder);
 
                     try {
                         runCommand("git remote -v", projectFolder);
+                        console.log(`✅ [RELEASE UPLOAD] Remote origin already configured`);
                     } catch (error) {
                         const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${validatedProjectName}.git`;
+                        console.log(`🔗 [RELEASE UPLOAD] Adding remote origin: ${remoteUrl}`);
                         runCommand(`git remote add origin ${remoteUrl}`, projectFolder);
                     }
                 }
 
                 // Commit changes
+                console.log(`📝 [RELEASE UPLOAD] Staging files for commit...`);
                 runCommand("git add .", projectFolder);
 
                 try {
                     const commitMessage = isNewRepo
                         ? `Initial project upload at ${new Date().toISOString()}`
                         : `Update project from zip upload at ${new Date().toISOString()}`;
+                    console.log(`💾 [RELEASE UPLOAD] Committing changes: ${commitMessage}`);
                     runCommand(`git commit -m "${commitMessage}"`, projectFolder);
+                    console.log(`✅ [RELEASE UPLOAD] Commit successful`);
                 } catch (error) {
                     if (!error.message.includes('nothing to commit') && !error.message.includes('no changes added to commit')) {
+                        console.log(`❌ [RELEASE UPLOAD] Commit failed: ${error.message}`);
                         throw new Error(`Commit failed: ${error.message}`);
+                    } else {
+                        console.log(`ℹ️ [RELEASE UPLOAD] No changes to commit (this is normal for some updates)`);
                     }
                 }
 
                 // Create unique tag
                 const tag = `v-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+                console.log(`🏷️ [RELEASE UPLOAD] Creating tag: ${tag}`);
                 runCommand(`git tag ${tag}`, projectFolder);
 
                 // Push to GitHub
+                console.log(`🚀 [RELEASE UPLOAD] Pushing to GitHub...`);
                 try {
                     if (isNewRepo) {
+                        console.log(`🆕 [RELEASE UPLOAD] Pushing new repository to GitHub...`);
                         runCommand("git push -u origin main --tags", projectFolder);
                     } else {
+                        console.log(`🔄 [RELEASE UPLOAD] Pushing updates to GitHub...`);
                         runCommand("git push origin main --tags", projectFolder);
                     }
+                    console.log(`✅ [RELEASE UPLOAD] Successfully pushed to GitHub`);
                 } catch (pushError) {
-                    console.error('❌ Push failed:', pushError.message);
+                    console.log(`❌ [RELEASE UPLOAD] Push failed: ${pushError.message}`);
                     throw new Error(`Push to GitHub failed: ${pushError.message}`);
                 }
 
                 // Detect build output dir
+                console.log(`🔍 [RELEASE UPLOAD] Detecting build output directory...`);
                 let outputDir = null;
                 if (fs.existsSync(path.join(actualProjectPath, "build"))) {
                     outputDir = "build";
+                    console.log(`📁 [RELEASE UPLOAD] Found build directory: build`);
                 } else if (fs.existsSync(path.join(actualProjectPath, "dist"))) {
                     outputDir = "dist";
+                    console.log(`📁 [RELEASE UPLOAD] Found build directory: dist`);
                 }
 
                 if (!outputDir) {
+                    console.log(`❌ [RELEASE UPLOAD] No build output found in project`);
                     throw new Error("No build output found");
                 }
+
+                console.log(`✅ [RELEASE UPLOAD] Build output directory: ${outputDir}`);
 
                 // Patch index.html asset paths (optional)
                 const indexPath = path.join(actualProjectPath, outputDir, "index.html");
                 if (fs.existsSync(indexPath)) {
+                    console.log(`🔧 [RELEASE UPLOAD] Patching asset paths in index.html...`);
                     let html = fs.readFileSync(indexPath, "utf-8");
                     html = html.replace(/"\/assets\//g, '"./assets/');
                     fs.writeFileSync(indexPath, html);
+                    console.log(`✅ [RELEASE UPLOAD] Asset paths patched successfully`);
                 }
 
                 // Calculate build URL with release ID parameter
@@ -748,15 +833,19 @@ window.markerConfig = {
                     path.join(process.cwd(), "projects"),
                     path.join(actualProjectPath, outputDir)
                 );
-                const buildUrl = `http://localhost:5000/apps/${relativeBuildPath}?releaseId=${releaseId}`;
+                const buildUrl = `http://13.203.192.57:5000/apps/${relativeBuildPath}?releaseId=${releaseId}`;
+                console.log(`🔗 [RELEASE UPLOAD] Build URL: ${buildUrl}`);
 
                 // Deactivate all existing versions for this project
+                console.log(`🔄 [RELEASE UPLOAD] Deactivating existing versions for project ${release.project.id}...`);
                 await prisma.projectVersion.updateMany({
                     where: { projectId: release.project.id },
                     data: { isActive: false }
                 });
+                console.log(`✅ [RELEASE UPLOAD] Existing versions deactivated`);
 
                 // Create new version linked to release
+                console.log(`💾 [RELEASE UPLOAD] Creating new version record in database...`);
                 const newVersion = await prisma.projectVersion.create({
                     data: {
                         projectId: release.project.id,
@@ -768,6 +857,10 @@ window.markerConfig = {
                         uploadedBy: userId
                     }
                 });
+                console.log(`✅ [RELEASE UPLOAD] Version ${versionNumber} created successfully (ID: ${newVersion.id})`);
+
+                console.log(`🎉 [RELEASE UPLOAD] Upload process completed successfully!`);
+                console.log(`📊 [RELEASE UPLOAD] Summary: Version ${versionNumber}, Tag: ${tag}, Repository: ${validatedProjectName}, New Repo: ${isNewRepo}`);
 
                 return {
                     message: "✅ Project uploaded & pushed to GitHub",
@@ -779,19 +872,24 @@ window.markerConfig = {
                 };
 
             } catch (error) {
+                console.log(`❌ [RELEASE UPLOAD] Error in processing: ${error.message}`);
                 throw error;
             }
         });
 
+        console.log(`✅ [RELEASE UPLOAD] Upload completed successfully for release ${releaseId}`);
         res.json(result);
 
     } catch (err) {
+        console.log(`❌ [RELEASE UPLOAD] Upload failed for release ${releaseId}: ${err.message}`);
         console.error('Upload error:', err);
         res.status(500).json({ error: err.message });
     } finally {
         // Clean up uploaded file
         if (req.file && fs.existsSync(req.file.path)) {
+            console.log(`🧹 [RELEASE UPLOAD] Cleaning up uploaded file: ${req.file.path}`);
             fs.removeSync(req.file.path);
+            console.log(`✅ [RELEASE UPLOAD] File cleanup completed`);
         }
     }
 });
