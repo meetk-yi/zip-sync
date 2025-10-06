@@ -22,25 +22,38 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if running on EC2
-if [ ! -f /sys/hypervisor/uuid ] || [ "$(head -c 3 /sys/hypervisor/uuid 2>/dev/null)" != "ec2" ]; then
-    print_error "This script should be run on EC2 instance"
-    exit 1
+# Detect current user and set paths accordingly
+CURRENT_USER=${USER:-$(whoami)}
+if [ "$CURRENT_USER" = "ec2-user" ]; then
+    PROJECT_DIR="/home/ec2-user/zip-sync"
+elif [ "$CURRENT_USER" = "ubuntu" ]; then
+    PROJECT_DIR="/home/ubuntu/zip-sync"
+else
+    PROJECT_DIR="/home/$CURRENT_USER/zip-sync"
+    print_warning "Using custom user path: $PROJECT_DIR"
+fi
+
+print_status "Using project directory: $PROJECT_DIR"
+
+# Check if running as ec2-user (optional check)
+if [ "$CURRENT_USER" != "ec2-user" ] && [ "$CURRENT_USER" != "ubuntu" ]; then
+    print_warning "This script is designed for EC2 instances. Current user: $CURRENT_USER"
+    print_warning "Continuing anyway..."
 fi
 
 print_status "Setting up directories..."
 # Create necessary directories
-mkdir -p /home/ec2-user/zip-sync/logs
-mkdir -p /home/ec2-user/zip-sync/backend/uploads
-mkdir -p /home/ec2-user/zip-sync/backend/projects
+mkdir -p $PROJECT_DIR/logs
+mkdir -p $PROJECT_DIR/backend/uploads
+mkdir -p $PROJECT_DIR/backend/projects
 
 print_status "Installing dependencies..."
 # Install backend dependencies
-cd /home/ec2-user/zip-sync/backend
+cd $PROJECT_DIR/backend
 npm install
 
 # Install frontend dependencies
-cd /home/ec2-user/zip-sync/frontend
+cd $PROJECT_DIR/frontend
 npm install
 
 print_status "Building frontend..."
@@ -60,7 +73,7 @@ pm2 delete all 2>/dev/null || true
 
 print_status "Starting applications with PM2..."
 # Start applications using ecosystem file
-cd /home/ec2-user/zip-sync
+cd $PROJECT_DIR
 pm2 start ecosystem.config.js
 
 # Save PM2 configuration

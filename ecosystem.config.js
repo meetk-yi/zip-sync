@@ -1,9 +1,15 @@
+const path = require('path');
+const os = require('os');
+
+// Get the current working directory (where the script is run from)
+const projectDir = process.cwd();
+
 module.exports = {
   apps: [
     {
       name: 'zip-sync-backend',
       script: './backend/server.js',
-      cwd: '/home/ec2-user/zip-sync',
+      cwd: projectDir,
       instances: 1,
       autorestart: true,
       watch: false,
@@ -21,7 +27,7 @@ module.exports = {
       name: 'zip-sync-frontend',
       script: 'npm',
       args: 'run dev',
-      cwd: '/home/ec2-user/zip-sync/frontend',
+      cwd: path.join(projectDir, 'frontend'),
       instances: 1,
       autorestart: true,
       watch: false,
