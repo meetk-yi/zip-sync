@@ -87,8 +87,9 @@ pm2 status
 
 print_status "Deployment completed successfully!"
 print_status "Your application should be available at:"
-print_status "  Backend: http://localhost:5000"
-print_status "  Frontend: http://localhost:5173"
+print_status "  Backend: http://13.203.192.57:5000"
+print_status "  Frontend: http://13.203.192.57:5173"
+print_status "  API Endpoint: http://13.203.192.57:5000/api"
 
 print_warning "Make sure to:"
 print_warning "1. Configure your environment variables"

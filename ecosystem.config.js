@@ -26,7 +26,7 @@ module.exports = {
     {
       name: 'zip-sync-frontend',
       script: 'npm',
-      args: 'run dev',
+      args: 'run dev -- --host 0.0.0.0 --port 5173',
       cwd: path.join(projectDir, 'frontend'),
       instances: 1,
       autorestart: true,
@@ -34,7 +34,8 @@ module.exports = {
       max_memory_restart: '1G',
       env: {
         NODE_ENV: 'production',
-        PORT: 5173
+        PORT: 5173,
+        HOST: '0.0.0.0'
       },
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',
