@@ -65,7 +65,7 @@ exec(`cd ${actualProjectPath} && npm install && npm run build`, async (err, stdo
   }
 
   return res.json({
-    url: `http://localhost:${PORT}/apps/${projectId}/${outputDir}`
+    url: `http://13.203.192.57:${PORT}/apps/${projectId}/${outputDir}`
   });
 });
 
@@ -81,6 +81,7 @@ exec(`cd ${actualProjectPath} && npm install && npm run build`, async (err, stdo
 // Serve built apps
 app.use("/apps", express.static(path.join("backend/projects")));
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Backend running on http://13.203.192.57:${PORT}`);
+  console.log(`🌐 Backend accessible from: http://0.0.0.0:${PORT}`);
 });
