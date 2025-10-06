@@ -543,7 +543,7 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
 
         console.log(`✅ [RELEASE UPLOAD] File validated at path: ${zipPath}`);
 
-        const projectFolder = path.join(process.cwd(), "projects", String(release.project.id));
+        const projectFolder = path.join(process.cwd(), "backend", "projects", String(release.project.id));
         console.log(`📂 [RELEASE UPLOAD] Project folder: ${projectFolder}`);
 
         // Use file locking to prevent concurrent uploads
@@ -704,10 +704,59 @@ window.markerConfig = {
                     throw new Error(`Dependency installation failed: ${error.message}`);
                 }
 
+                // Check if Vite is available and install if needed
+                console.log(`🔍 [RELEASE UPLOAD] Checking for Vite...`);
+                try {
+                    runCommand("npx vite --version", actualProjectPath);
+                    console.log(`✅ [RELEASE UPLOAD] Vite is available`);
+                } catch (error) {
+                    console.log(`⚠️ [RELEASE UPLOAD] Vite not found, installing Vite...`);
+                    try {
+                        runCommand("npm install vite --save-dev", actualProjectPath);
+                        console.log(`✅ [RELEASE UPLOAD] Vite installed successfully`);
+                    } catch (viteError) {
+                        console.log(`❌ [RELEASE UPLOAD] Failed to install Vite: ${viteError.message}`);
+                        // Try alternative build methods
+                        console.log(`🔄 [RELEASE UPLOAD] Trying alternative build approach...`);
+                    }
+                }
+
                 console.log(`🔨 [RELEASE UPLOAD] Building React application...`);
                 try {
-                    runCommand("npm run build", actualProjectPath);
-                    console.log(`✅ [RELEASE UPLOAD] Build completed successfully`);
+                    // Try different build commands
+                    let buildSuccess = false;
+                    
+                    // Try npm run build first
+                    try {
+                        runCommand("npm run build", actualProjectPath);
+                        buildSuccess = true;
+                        console.log(`✅ [RELEASE UPLOAD] Build completed with npm run build`);
+                    } catch (buildError) {
+                        console.log(`⚠️ [RELEASE UPLOAD] npm run build failed, trying npx vite build...`);
+                        
+                        // Try npx vite build
+                        try {
+                            runCommand("npx vite build", actualProjectPath);
+                            buildSuccess = true;
+                            console.log(`✅ [RELEASE UPLOAD] Build completed with npx vite build`);
+                        } catch (viteBuildError) {
+                            console.log(`⚠️ [RELEASE UPLOAD] npx vite build failed, trying alternative...`);
+                            
+                            // Try with explicit vite path
+                            try {
+                                runCommand("npx ./node_modules/.bin/vite build", actualProjectPath);
+                                buildSuccess = true;
+                                console.log(`✅ [RELEASE UPLOAD] Build completed with explicit vite path`);
+                            } catch (explicitError) {
+                                console.log(`❌ [RELEASE UPLOAD] All build methods failed`);
+                                throw new Error(`Build failed: All build methods failed. Last error: ${explicitError.message}`);
+                            }
+                        }
+                    }
+                    
+                    if (!buildSuccess) {
+                        throw new Error(`Build failed: No successful build method found`);
+                    }
                 } catch (error) {
                     console.log(`❌ [RELEASE UPLOAD] Build failed: ${error.message}`);
                     throw new Error(`Build failed: ${error.message}`);
@@ -830,7 +879,7 @@ window.markerConfig = {
 
                 // Calculate build URL with release ID parameter
                 const relativeBuildPath = path.relative(
-                    path.join(process.cwd(), "projects"),
+                    path.join(process.cwd(), "backend", "projects"),
                     path.join(actualProjectPath, outputDir)
                 );
                 const buildUrl = `http://13.203.192.57:5000/apps/${relativeBuildPath}?releaseId=${releaseId}`;

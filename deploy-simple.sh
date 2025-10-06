@@ -42,6 +42,7 @@ print_status "Setting up directories..."
 mkdir -p logs
 mkdir -p backend/uploads
 mkdir -p backend/projects
+mkdir -p backend/backend/projects
 
 print_status "Installing dependencies..."
 # Install backend dependencies
@@ -72,6 +73,17 @@ if ! command -v pm2 &> /dev/null; then
     print_status "Installing PM2..."
     sudo npm install -g pm2
 fi
+
+print_status "Installing build tools..."
+# Install Vite globally to prevent build issues
+if ! command -v vite &> /dev/null; then
+    print_status "Installing Vite globally..."
+    sudo npm install -g vite
+fi
+
+# Install additional build tools
+print_status "Installing additional build tools..."
+sudo npm install -g @vitejs/plugin-react terser esbuild
 
 # Stop existing processes
 pm2 stop all 2>/dev/null || true

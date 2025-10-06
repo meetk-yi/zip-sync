@@ -898,7 +898,7 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
       return res.status(400).json({ error: 'Uploaded file not found on server' });
     }
 
-    const projectFolder = path.join(process.cwd(), "projects", String(projectId));
+    const projectFolder = path.join(process.cwd(), "backend", "projects", String(projectId));
 
     // Use file locking to prevent concurrent uploads
     const result = await withProjectLock(validatedProjectName, async () => {
@@ -1136,7 +1136,7 @@ window.markerConfig = {
 
         // Calculate build URL
         const relativeBuildPath = path.relative(
-          path.join(process.cwd(), "projects"),
+          path.join(process.cwd(), "backend", "projects"),
           path.join(actualProjectPath, outputDir)
         );
         const buildUrl = `http://13.203.192.57:5000/apps/${relativeBuildPath}`;
@@ -1292,7 +1292,7 @@ router.get("/:id/diff-summary", authenticateToken, async (req, res) => {
     if (!hasAccess) return res.status(403).json({ error: "Forbidden" });
 
     // Get project folder path
-    const projectFolder = path.join(process.cwd(), "projects", String(projectId));
+    const projectFolder = path.join(process.cwd(), "backend", "projects", String(projectId));
     
     // Ensure project exists
     if (!fs.existsSync(projectFolder)) {
@@ -1388,7 +1388,7 @@ router.get("/:id/git-diff", authenticateToken, async (req, res) => {
     if (!hasAccess) return res.status(403).json({ error: "Forbidden" });
 
     // Get project folder path
-    const projectFolder = path.join(process.cwd(), "projects", String(projectId));
+    const projectFolder = path.join(process.cwd(), "backend", "projects", String(projectId));
     
     // Ensure project exists
     if (!fs.existsSync(projectFolder)) {
@@ -1678,7 +1678,7 @@ router.post("/:id/generate-jira-tickets", authenticateToken, async (req, res) =>
     if (!hasAccess) return res.status(403).json({ error: "Forbidden" });
 
     // Get project folder path
-    const projectFolder = path.join(process.cwd(), "projects", String(projectId));
+    const projectFolder = path.join(process.cwd(), "backend", "projects", String(projectId));
     
     if (!fs.existsSync(projectFolder)) {
       return res.status(404).json({ error: "Project folder not found" });
