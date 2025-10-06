@@ -26,8 +26,14 @@ PROJECT_DIR=$(pwd)
 print_status "Using project directory: $PROJECT_DIR"
 
 # Check if we're in the right directory
-if [ ! -f "package.json" ] && [ ! -d "backend" ] && [ ! -d "frontend" ]; then
+if [ ! -d "backend" ] || [ ! -d "frontend" ]; then
     print_error "Please run this script from the zip-sync project root directory"
+    exit 1
+fi
+
+# Check if the correct server file exists
+if [ ! -f "backend/src/server.js" ]; then
+    print_error "Backend server file not found at backend/src/server.js"
     exit 1
 fi
 

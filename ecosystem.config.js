@@ -8,7 +8,7 @@ module.exports = {
   apps: [
     {
       name: 'zip-sync-backend',
-      script: './backend/server.js',
+      script: './backend/src/server.js',
       cwd: projectDir,
       instances: 1,
       autorestart: true,

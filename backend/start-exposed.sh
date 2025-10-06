@@ -17,7 +17,7 @@ print_warning() {
 }
 
 # Check if we're in the backend directory
-if [ ! -f "server.js" ]; then
+if [ ! -f "src/server.js" ]; then
     print_warning "Please run this script from the backend directory"
     exit 1
 fi
@@ -33,4 +33,4 @@ print_status "  Network: http://0.0.0.0:5000"
 print_status "  API: http://13.203.192.57:5000/api"
 
 # Start with host binding
-node server.js
+node src/server.js

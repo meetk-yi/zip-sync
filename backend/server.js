@@ -6,11 +6,41 @@ import fs from "fs-extra";
 import extract from "extract-zip"; // ✅ use extract-zip
 import cors from "cors";
 
+// Import route modules
+import authRoutes from "./src/routes/auth.routes.js";
+import projectRoutes from "./src/routes/project.routes.js";
+import releaseRoutes from "./src/routes/release.routes.js";
+
 const app = express();
 const PORT = 5000;
 
 app.use(cors());
 app.use(express.json());
+
+// Add root route
+app.get("/", (req, res) => {
+  res.json({
+    message: "Zip Sync Backend API",
+    version: "1.0.0",
+    status: "running",
+    endpoints: {
+      auth: "/api/auth",
+      projects: "/api/projects", 
+      releases: "/api/releases",
+      apps: "/apps"
+    }
+  });
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
+// API routes
+app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/releases", releaseRoutes);
 
 const upload = multer({ dest: "backend/uploads/" });
 
