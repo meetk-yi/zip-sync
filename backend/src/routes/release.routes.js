@@ -652,6 +652,18 @@ window.markerConfig = {
                     throw new Error(`Dependency installation failed: ${error.message}`);
                 }
 
+                // Check if Vite is available, if not install it
+                try {
+                    runCommand("npx vite --version", actualProjectPath);
+                } catch (error) {
+                    console.log("Vite not found, installing Vite and React plugin...");
+                    try {
+                        runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
+                    } catch (installError) {
+                        console.log("Failed to install Vite, continuing with existing build tools...");
+                    }
+                }
+
                 try {
                     runCommand("npm run build", actualProjectPath);
                 } catch (error) {
