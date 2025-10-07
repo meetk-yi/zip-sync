@@ -10,7 +10,7 @@ import { exec, execSync } from "child_process";
 import crypto from "crypto";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { SERVER_IP, BACKEND_PORT } from "../config/server-config.js";
+import { SERVER_IP, BACKEND_PORT } from "../../config/server-config.js";
 
 dotenv.config();
 
