@@ -1,5 +1,6 @@
 // Header utility functions for project injection
 import dotenv from "dotenv";
+import { SERVER_IP, BACKEND_PORT } from "../../config/server-config.js";
 dotenv.config();
 
 // Generate project header component HTML with improved design matching main.css
@@ -251,11 +252,11 @@ function generateHeader(type = 'project') {
     function getApiBaseUrl() {
       const currentUrl = window.location.href;
       console.log('🔍 Determining API base URL from:', currentUrl);
-      if (currentUrl.includes('localhost') || currentUrl.includes('13.203.192.57')) {
-        return 'http://13.203.192.57:5000';
+      if (currentUrl.includes('localhost') || currentUrl.includes('${SERVER_IP}')) {
+        return 'http://${SERVER_IP}:${BACKEND_PORT}';
       } else {
         const urlObj = new URL(currentUrl);
-        return \`\${urlObj.protocol}//\${urlObj.hostname}:5000\`;
+        return \`\${urlObj.protocol}//\${urlObj.hostname}:${BACKEND_PORT}\`;
       }
     }
     

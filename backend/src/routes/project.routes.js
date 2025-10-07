@@ -11,6 +11,7 @@ import { exec, execSync } from "child_process";
 import crypto from "crypto";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import { SERVER_IP, BACKEND_PORT } from "../../config/server-config.js";
 
 dotenv.config();
 
@@ -1139,7 +1140,7 @@ window.markerConfig = {
           path.join(process.cwd(), "projects"),
           path.join(actualProjectPath, outputDir)
         );
-        const buildUrl = `http://13.203.192.57:5000/apps/${relativeBuildPath}`;
+        const buildUrl = `http://${SERVER_IP}:${BACKEND_PORT}/apps/${relativeBuildPath}`;
 
         // Deactivate all existing versions for this project
         await prisma.projectVersion.updateMany({
