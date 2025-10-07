@@ -1,6 +1,6 @@
 // Header utility functions for project injection
 import dotenv from "dotenv";
-import { SERVER_IP, BACKEND_PORT } from "../../config/server-config.js";
+import { SERVER_IP, BACKEND_PORT } from "../../../config/server-config.js";
 dotenv.config();
 
 // Generate project header component HTML with improved design matching main.css

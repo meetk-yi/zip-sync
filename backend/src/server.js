@@ -1,5 +1,5 @@
 import app from "./app.js";
-import { SERVER_IP, BACKEND_PORT } from "../../config/server-config.js";
+import { SERVER_IP, BACKEND_PORT } from "../../../config/server-config.js";
 
 const PORT = process.env.PORT || BACKEND_PORT;
 
