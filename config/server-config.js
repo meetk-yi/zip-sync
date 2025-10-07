@@ -20,7 +20,7 @@ const BACKEND_URL = `http://${SERVER_IP}:${BACKEND_PORT}`;
 const API_BASE_URL = BACKEND_URL;
 
 // Export configuration
-module.exports = {
+export {
     SERVER_IP,
     FRONTEND_PORT,
     BACKEND_PORT,
