@@ -459,14 +459,6 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
     const { role, id: userId } = req.user;
     const { version } = req.body;
 
-    console.log(`🚀 [UPLOAD] Starting upload process for release ${releaseId} by user ${userId}`);
-    console.log(`📁 [UPLOAD] File info:`, {
-        originalName: req.file?.originalname,
-        size: req.file?.size,
-        mimetype: req.file?.mimetype,
-        version: version
-    });
-
     try {
         // Check if release exists and is not locked
         const release = await prisma.release.findUnique({
@@ -517,40 +509,26 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
         }
 
         const zipPath = req.file.path;
-        console.log(`📂 [UPLOAD] Zip file path: ${zipPath}`);
-        
         if (!fs.existsSync(zipPath)) {
-            console.error(`❌ [UPLOAD] Uploaded file not found at: ${zipPath}`);
             return res.status(400).json({ error: 'Uploaded file not found on server' });
         }
 
         const projectFolder = path.join(process.cwd(), "projects", String(release.project.id));
-        console.log(`📁 [UPLOAD] Project folder: ${projectFolder}`);
 
         // Use file locking to prevent concurrent uploads
         const result = await withProjectLock(validatedProjectName, async () => {
             try {
-                console.log(`🔒 [UPLOAD] Acquired project lock for: ${validatedProjectName}`);
-                
                 // Validate zip file
                 const stats = fs.statSync(zipPath);
-                console.log(`📊 [UPLOAD] Zip file stats:`, {
-                    size: stats.size,
-                    sizeMB: (stats.size / (1024 * 1024)).toFixed(2) + 'MB'
-                });
-                
                 if (stats.size === 0) {
-                    console.error(`❌ [UPLOAD] Zip file is empty`);
                     throw new Error('Zip file is empty');
                 }
 
                 // Check if this is an existing project with git history
                 const gitDir = path.join(projectFolder, '.git');
                 const isExistingProject = fs.existsSync(gitDir);
-                console.log(`🔍 [UPLOAD] Project type: ${isExistingProject ? 'Existing (with git)' : 'New project'}`);
 
                 if (isExistingProject) {
-                    console.log(`🧹 [UPLOAD] Cleaning existing project (preserving .git)`);
                     // For existing projects, remove everything except .git directory
                     const items = fs.readdirSync(projectFolder);
                     for (const item of items) {
@@ -560,57 +538,37 @@ router.post("/:releaseId/upload", authenticateToken, upload.single("project"), a
                         }
                     }
                 } else {
-                    console.log(`🧹 [UPLOAD] Clearing project directory for new project`);
                     // Clear the project directory completely for new projects
                     fs.emptyDirSync(projectFolder);
                 }
 
                 // Extract zip file
-                console.log(`📦 [UPLOAD] Extracting zip file...`);
                 await extract(zipPath, { dir: projectFolder });
-                console.log(`✅ [UPLOAD] Zip extraction completed`);
 
                 // Verify extraction was successful
                 const extractedFiles = fs.readdirSync(projectFolder);
-                console.log(`📋 [UPLOAD] Extracted files:`, extractedFiles);
-                
                 if (extractedFiles.length === 0) {
-                    console.error(`❌ [UPLOAD] Zip file extraction resulted in empty directory`);
                     throw new Error('Zip file extraction resulted in empty directory');
                 }
 
                 // Detect actual project folder
-                console.log(`🔍 [UPLOAD] Detecting project root...`);
                 let actualProjectPath = findProjectRoot(projectFolder);
-                console.log(`📁 [UPLOAD] Project root detected at: ${actualProjectPath}`);
 
                 // Validate that it's a React project
                 const packageJsonPath = path.join(actualProjectPath, 'package.json');
-                console.log(`📄 [UPLOAD] Looking for package.json at: ${packageJsonPath}`);
                 
                 if (!fs.existsSync(packageJsonPath)) {
-                    console.error(`❌ [UPLOAD] package.json not found at: ${packageJsonPath}`);
                     throw new Error(`Not a valid React project: package.json not found at ${packageJsonPath}`);
                 }
 
                 let packageJson;
                 try {
-                    console.log(`📖 [UPLOAD] Reading package.json...`);
                     packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-                    console.log(`📦 [UPLOAD] Package info:`, {
-                        name: packageJson.name,
-                        version: packageJson.version,
-                        hasBuildScript: !!packageJson.scripts?.build,
-                        dependencies: Object.keys(packageJson.dependencies || {}).length,
-                        devDependencies: Object.keys(packageJson.devDependencies || {}).length
-                    });
                 } catch (error) {
-                    console.error(`❌ [UPLOAD] Invalid package.json:`, error.message);
                     throw new Error('Invalid package.json file');
                 }
 
                 if (!packageJson.scripts || !packageJson.scripts.build) {
-                    console.error(`❌ [UPLOAD] No build script found in package.json`);
                     throw new Error('Not a valid React project: build script not found in package.json');
                 }
 
@@ -688,53 +646,41 @@ window.markerConfig = {
                 }
 
                 // Build React app
-                console.log(`🔨 [UPLOAD] Starting build process...`);
                 try {
-                    console.log("📦 [UPLOAD] Installing dependencies... This may take a few minutes for large projects.");
-                    const startTime = Date.now();
                     runCommand("npm install", actualProjectPath);
-                    const installTime = Date.now() - startTime;
-                    console.log(`✅ [UPLOAD] Dependencies installed successfully in ${(installTime / 1000).toFixed(2)}s`);
                 } catch (error) {
-                    console.error(`❌ [UPLOAD] Dependency installation failed:`, error.message);
-                    // Try with --no-optional to reduce memory usage
-                    try {
-                        console.log("🔄 [UPLOAD] Retrying with --no-optional flag...");
-                        const retryStartTime = Date.now();
-                        runCommand("npm install --no-optional", actualProjectPath);
-                        const retryTime = Date.now() - retryStartTime;
-                        console.log(`✅ [UPLOAD] Dependencies installed with --no-optional in ${(retryTime / 1000).toFixed(2)}s`);
-                    } catch (retryError) {
-                        console.error(`❌ [UPLOAD] Retry also failed:`, retryError.message);
-                        throw new Error(`Dependency installation failed: ${error.message}. Retry also failed: ${retryError.message}`);
-                    }
+                    throw new Error(`Dependency installation failed: ${error.message}`);
                 }
 
-                // Check if Vite is available, if not install it
-                console.log(`🔍 [UPLOAD] Checking for Vite...`);
-                try {
-                    runCommand("npx vite --version", actualProjectPath);
-                    console.log(`✅ [UPLOAD] Vite is available`);
-                } catch (error) {
-                    console.log("⚠️ [UPLOAD] Vite not found, installing Vite and React plugin...");
+                // Check if this is a Vite project and ensure Vite is installed locally
+                const vitePackageJsonPath = path.join(actualProjectPath, 'package.json');
+                if (fs.existsSync(vitePackageJsonPath)) {
                     try {
-                        const viteStartTime = Date.now();
-                        runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
-                        const viteTime = Date.now() - viteStartTime;
-                        console.log(`✅ [UPLOAD] Vite installed successfully in ${(viteTime / 1000).toFixed(2)}s`);
-                    } catch (installError) {
-                        console.log("⚠️ [UPLOAD] Failed to install Vite, continuing with existing build tools...");
+                        const packageJson = JSON.parse(fs.readFileSync(vitePackageJsonPath, 'utf-8'));
+                        const hasViteConfig = fs.existsSync(path.join(actualProjectPath, 'vite.config.js')) || 
+                                            fs.existsSync(path.join(actualProjectPath, 'vite.config.ts')) ||
+                                            fs.existsSync(path.join(actualProjectPath, 'vite.config.mjs'));
+                        
+                        if (hasViteConfig || (packageJson.devDependencies && packageJson.devDependencies.vite)) {
+                            console.log(`🔍 [UPLOAD] Detected Vite project, ensuring Vite is installed locally...`);
+                            try {
+                                // Check if Vite is already installed locally
+                                runCommand("npm list vite", actualProjectPath);
+                                console.log(`✅ [UPLOAD] Vite is already installed locally`);
+                            } catch (error) {
+                                console.log(`⚠️ [UPLOAD] Vite not found locally, installing...`);
+                                runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
+                                console.log(`✅ [UPLOAD] Vite installed locally`);
+                            }
+                        }
+                    } catch (error) {
+                        console.log(`⚠️ [UPLOAD] Could not check package.json for Vite: ${error.message}`);
                     }
                 }
 
                 try {
-                    console.log(`🏗️ [UPLOAD] Running build command...`);
-                    const buildStartTime = Date.now();
                     runCommand("npm run build", actualProjectPath);
-                    const buildTime = Date.now() - buildStartTime;
-                    console.log(`✅ [UPLOAD] Build completed successfully in ${(buildTime / 1000).toFixed(2)}s`);
                 } catch (error) {
-                    console.error(`❌ [UPLOAD] Build failed:`, error.message);
                     throw new Error(`Build failed: ${error.message}`);
                 }
 
@@ -864,28 +810,14 @@ window.markerConfig = {
             }
         });
 
-        console.log(`🎉 [UPLOAD] Upload completed successfully for release ${releaseId}`);
-        console.log(`📊 [UPLOAD] Final result:`, {
-            version: result.version,
-            projectId: result.projectId,
-            projectName: result.projectName,
-            liveUrl: result.liveUrl
-        });
         res.json(result);
 
     } catch (err) {
-        console.error(`❌ [UPLOAD] Upload error for release ${releaseId}:`, err.message);
-        console.error(`📊 [UPLOAD] Error details:`, {
-            error: err.message,
-            stack: err.stack,
-            releaseId: releaseId,
-            userId: userId
-        });
+        console.error('Upload error:', err);
         res.status(500).json({ error: err.message });
     } finally {
         // Clean up uploaded file
         if (req.file && fs.existsSync(req.file.path)) {
-            console.log(`🧹 [UPLOAD] Cleaning up uploaded file: ${req.file.path}`);
             fs.removeSync(req.file.path);
         }
     }

@@ -1038,6 +1038,32 @@ window.markerConfig = {
           throw new Error(`Dependency installation failed: ${error.message}`);
         }
 
+        // Check if this is a Vite project and ensure Vite is installed locally
+        const vitePackageJsonPath = path.join(actualProjectPath, 'package.json');
+        if (fs.existsSync(vitePackageJsonPath)) {
+          try {
+            const packageJson = JSON.parse(fs.readFileSync(vitePackageJsonPath, 'utf-8'));
+            const hasViteConfig = fs.existsSync(path.join(actualProjectPath, 'vite.config.js')) || 
+                                fs.existsSync(path.join(actualProjectPath, 'vite.config.ts')) ||
+                                fs.existsSync(path.join(actualProjectPath, 'vite.config.mjs'));
+            
+            if (hasViteConfig || (packageJson.devDependencies && packageJson.devDependencies.vite)) {
+              console.log(`🔍 [UPLOAD] Detected Vite project, ensuring Vite is installed locally...`);
+              try {
+                // Check if Vite is already installed locally
+                runCommand("npm list vite", actualProjectPath);
+                console.log(`✅ [UPLOAD] Vite is already installed locally`);
+              } catch (error) {
+                console.log(`⚠️ [UPLOAD] Vite not found locally, installing...`);
+                runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
+                console.log(`✅ [UPLOAD] Vite installed locally`);
+              }
+            }
+          } catch (error) {
+            console.log(`⚠️ [UPLOAD] Could not check package.json for Vite: ${error.message}`);
+          }
+        }
+
         try {
           runCommand("npm run build", actualProjectPath);
         } catch (error) {
