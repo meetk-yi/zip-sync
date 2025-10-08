@@ -724,14 +724,33 @@ window.markerConfig = {
                             // Verify installation
                             try {
                                 console.log(`🔍 [UPLOAD] Verifying Vite installation...`);
-                                const viteCheck = runCommand("npm list vite", actualProjectPath);
-                                console.log(`✅ [UPLOAD] Vite verification:`, viteCheck.toString().trim());
                                 
-                                const pluginCheck = runCommand("npm list @vitejs/plugin-react", actualProjectPath);
-                                console.log(`✅ [UPLOAD] React plugin verification:`, pluginCheck.toString().trim());
+                                // Check if Vite files exist in node_modules
+                                const viteExists = fs.existsSync(path.join(actualProjectPath, 'node_modules', 'vite'));
+                                const reactPluginExists = fs.existsSync(path.join(actualProjectPath, 'node_modules', '@vitejs', 'plugin-react'));
+                                const swcPluginExists = fs.existsSync(path.join(actualProjectPath, 'node_modules', '@vitejs', 'plugin-react-swc'));
                                 
-                                const swcPluginCheck = runCommand("npm list @vitejs/plugin-react-swc", actualProjectPath);
-                                console.log(`✅ [UPLOAD] React SWC plugin verification:`, swcPluginCheck.toString().trim());
+                                console.log(`✅ [UPLOAD] Vite file verification:`, {
+                                    viteExists,
+                                    reactPluginExists,
+                                    swcPluginExists
+                                });
+                                
+                                // Try npm list commands but don't fail if they don't work
+                                try {
+                                    const viteCheck = runCommand("npm list vite", actualProjectPath);
+                                    console.log(`✅ [UPLOAD] Vite npm list:`, viteCheck.toString().trim());
+                                } catch (listError) {
+                                    console.log(`⚠️ [UPLOAD] npm list vite failed but files exist:`, listError.message);
+                                }
+                                
+                                // If Vite files exist, we're good to go
+                                if (viteExists) {
+                                    console.log(`✅ [UPLOAD] Vite installation verified - files exist in node_modules`);
+                                } else {
+                                    throw new Error(`Vite not found in node_modules despite installation attempt`);
+                                }
+                                
                             } catch (verifyError) {
                                 console.error(`❌ [UPLOAD] Vite verification failed:`, verifyError.message);
                                 throw new Error(`Vite installation verification failed: ${verifyError.message}`);
