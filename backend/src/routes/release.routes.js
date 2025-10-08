@@ -646,10 +646,41 @@ window.markerConfig = {
                 }
 
                 // Build React app
+                console.log(`🔨 [UPLOAD] Starting build process...`);
+                
+                // Clean node_modules and package-lock.json for fresh installation
+                const nodeModulesPath = path.join(actualProjectPath, 'node_modules');
+                const packageLockPath = path.join(actualProjectPath, 'package-lock.json');
+                
+                if (fs.existsSync(nodeModulesPath)) {
+                    console.log(`🧹 [UPLOAD] Removing existing node_modules for fresh installation...`);
+                    fs.removeSync(nodeModulesPath);
+                }
+                
+                if (fs.existsSync(packageLockPath)) {
+                    console.log(`🧹 [UPLOAD] Removing package-lock.json for fresh installation...`);
+                    fs.removeSync(packageLockPath);
+                }
+                
                 try {
+                    console.log("📦 [UPLOAD] Installing dependencies... This may take a few minutes for large projects.");
+                    const startTime = Date.now();
                     runCommand("npm install", actualProjectPath);
+                    const installTime = Date.now() - startTime;
+                    console.log(`✅ [UPLOAD] Dependencies installed successfully in ${(installTime / 1000).toFixed(2)}s`);
                 } catch (error) {
-                    throw new Error(`Dependency installation failed: ${error.message}`);
+                    console.error(`❌ [UPLOAD] Dependency installation failed:`, error.message);
+                    // Try with --no-optional to reduce memory usage
+                    try {
+                        console.log("🔄 [UPLOAD] Retrying with --no-optional flag...");
+                        const retryStartTime = Date.now();
+                        runCommand("npm install --no-optional", actualProjectPath);
+                        const retryTime = Date.now() - retryStartTime;
+                        console.log(`✅ [UPLOAD] Dependencies installed with --no-optional in ${(retryTime / 1000).toFixed(2)}s`);
+                    } catch (retryError) {
+                        console.error(`❌ [UPLOAD] Retry also failed:`, retryError.message);
+                        throw new Error(`Dependency installation failed: ${error.message}. Retry also failed: ${retryError.message}`);
+                    }
                 }
 
                 // Check if this is a Vite project and ensure Vite is installed locally
