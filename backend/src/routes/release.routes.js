@@ -684,6 +684,7 @@ window.markerConfig = {
                 }
 
                 // Check if this is a Vite project and ensure Vite is installed locally BEFORE building
+                console.log(`🔍 [UPLOAD] Checking for Vite project in: ${actualProjectPath}`);
                 const vitePackageJsonPath = path.join(actualProjectPath, 'package.json');
                 if (fs.existsSync(vitePackageJsonPath)) {
                     try {
@@ -692,19 +693,27 @@ window.markerConfig = {
                                             fs.existsSync(path.join(actualProjectPath, 'vite.config.ts')) ||
                                             fs.existsSync(path.join(actualProjectPath, 'vite.config.mjs'));
                         
+                        console.log(`🔍 [UPLOAD] Vite detection results:`, {
+                            hasViteConfig,
+                            hasViteInDevDeps: !!(packageJson.devDependencies && packageJson.devDependencies.vite),
+                            viteVersion: packageJson.devDependencies?.vite,
+                            reactPluginVersion: packageJson.devDependencies?.['@vitejs/plugin-react']
+                        });
+                        
                         if (hasViteConfig || (packageJson.devDependencies && packageJson.devDependencies.vite)) {
                             console.log(`🔍 [UPLOAD] Detected Vite project, ensuring Vite is installed locally...`);
                             
                             // Force install Vite and React plugin to ensure they're available
                             console.log(`📦 [UPLOAD] Installing Vite and React plugin...`);
                             try {
-                                runCommand("npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0", actualProjectPath);
-                                console.log(`✅ [UPLOAD] Vite and React plugin installed successfully`);
+                                // Install both regular and SWC React plugins to cover all cases
+                                runCommand("npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0 @vitejs/plugin-react-swc@^3.0.0", actualProjectPath);
+                                console.log(`✅ [UPLOAD] Vite and React plugins installed successfully`);
                             } catch (installError) {
                                 console.error(`❌ [UPLOAD] Failed to install Vite:`, installError.message);
                                 // Try alternative installation
                                 try {
-                                    runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
+                                    runCommand("npm install --save-dev vite @vitejs/plugin-react @vitejs/plugin-react-swc", actualProjectPath);
                                     console.log(`✅ [UPLOAD] Vite installed with latest versions`);
                                 } catch (altError) {
                                     console.error(`❌ [UPLOAD] Alternative Vite installation also failed:`, altError.message);
@@ -720,6 +729,9 @@ window.markerConfig = {
                                 
                                 const pluginCheck = runCommand("npm list @vitejs/plugin-react", actualProjectPath);
                                 console.log(`✅ [UPLOAD] React plugin verification:`, pluginCheck.toString().trim());
+                                
+                                const swcPluginCheck = runCommand("npm list @vitejs/plugin-react-swc", actualProjectPath);
+                                console.log(`✅ [UPLOAD] React SWC plugin verification:`, swcPluginCheck.toString().trim());
                             } catch (verifyError) {
                                 console.error(`❌ [UPLOAD] Vite verification failed:`, verifyError.message);
                                 throw new Error(`Vite installation verification failed: ${verifyError.message}`);
@@ -731,13 +743,23 @@ window.markerConfig = {
                 }
 
                 try {
-                    console.log(`🏗️ [UPLOAD] Running build command...`);
+                    console.log(`🏗️ [UPLOAD] Running build command in: ${actualProjectPath}`);
+                    console.log(`🔍 [UPLOAD] Current directory contents:`, fs.readdirSync(actualProjectPath));
+                    console.log(`🔍 [UPLOAD] Checking if node_modules exists:`, fs.existsSync(path.join(actualProjectPath, 'node_modules')));
+                    console.log(`🔍 [UPLOAD] Checking if vite exists in node_modules:`, fs.existsSync(path.join(actualProjectPath, 'node_modules', 'vite')));
+                    
                     const buildStartTime = Date.now();
                     runCommand("npm run build", actualProjectPath);
                     const buildTime = Date.now() - buildStartTime;
                     console.log(`✅ [UPLOAD] Build completed successfully in ${(buildTime / 1000).toFixed(2)}s`);
                 } catch (error) {
                     console.error(`❌ [UPLOAD] Build failed:`, error.message);
+                    console.error(`❌ [UPLOAD] Build error details:`, {
+                        actualProjectPath,
+                        nodeModulesExists: fs.existsSync(path.join(actualProjectPath, 'node_modules')),
+                        viteExists: fs.existsSync(path.join(actualProjectPath, 'node_modules', 'vite')),
+                        packageJsonExists: fs.existsSync(path.join(actualProjectPath, 'package.json'))
+                    });
                     throw new Error(`Build failed: ${error.message}`);
                 }
 
