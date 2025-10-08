@@ -1069,7 +1069,7 @@ window.markerConfig = {
           }
         }
 
-        // Check if this is a Vite project and ensure Vite is installed locally
+        // Check if this is a Vite project and ensure Vite is installed locally BEFORE building
         const vitePackageJsonPath = path.join(actualProjectPath, 'package.json');
         if (fs.existsSync(vitePackageJsonPath)) {
           try {
@@ -1096,8 +1096,13 @@ window.markerConfig = {
         }
 
         try {
+          console.log(`🏗️ [UPLOAD] Running build command...`);
+          const buildStartTime = Date.now();
           runCommand("npm run build", actualProjectPath);
+          const buildTime = Date.now() - buildStartTime;
+          console.log(`✅ [UPLOAD] Build completed successfully in ${(buildTime / 1000).toFixed(2)}s`);
         } catch (error) {
+          console.error(`❌ [UPLOAD] Build failed:`, error.message);
           throw new Error(`Build failed: ${error.message}`);
         }
 
