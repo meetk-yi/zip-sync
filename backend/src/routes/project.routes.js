@@ -1080,25 +1080,35 @@ window.markerConfig = {
             
             if (hasViteConfig || (packageJson.devDependencies && packageJson.devDependencies.vite)) {
               console.log(`🔍 [UPLOAD] Detected Vite project, ensuring Vite is installed locally...`);
+              
+              // Force install Vite and React plugin to ensure they're available
+              console.log(`📦 [UPLOAD] Installing Vite and React plugin...`);
               try {
-                // Check if Vite is already installed locally
-                runCommand("npm list vite", actualProjectPath);
-                console.log(`✅ [UPLOAD] Vite is already installed locally`);
-              } catch (error) {
-                console.log(`⚠️ [UPLOAD] Vite not found locally, installing...`);
-                // Install Vite with compatible versions
                 runCommand("npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0", actualProjectPath);
-                console.log(`✅ [UPLOAD] Vite installed locally with compatible versions`);
+                console.log(`✅ [UPLOAD] Vite and React plugin installed successfully`);
+              } catch (installError) {
+                console.error(`❌ [UPLOAD] Failed to install Vite:`, installError.message);
+                // Try alternative installation
+                try {
+                  runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
+                  console.log(`✅ [UPLOAD] Vite installed with latest versions`);
+                } catch (altError) {
+                  console.error(`❌ [UPLOAD] Alternative Vite installation also failed:`, altError.message);
+                  throw new Error(`Failed to install Vite: ${installError.message}`);
+                }
               }
               
-              // Additional check: ensure all Vite dependencies are properly installed
+              // Verify installation
               try {
                 console.log(`🔍 [UPLOAD] Verifying Vite installation...`);
-                runCommand("npm list @vitejs/plugin-react", actualProjectPath);
-                console.log(`✅ [UPLOAD] Vite React plugin is available`);
-              } catch (error) {
-                console.log(`⚠️ [UPLOAD] Installing missing Vite React plugin...`);
-                runCommand("npm install --save-dev @vitejs/plugin-react@^4.0.0", actualProjectPath);
+                const viteCheck = runCommand("npm list vite", actualProjectPath);
+                console.log(`✅ [UPLOAD] Vite verification:`, viteCheck.toString().trim());
+                
+                const pluginCheck = runCommand("npm list @vitejs/plugin-react", actualProjectPath);
+                console.log(`✅ [UPLOAD] React plugin verification:`, pluginCheck.toString().trim());
+              } catch (verifyError) {
+                console.error(`❌ [UPLOAD] Vite verification failed:`, verifyError.message);
+                throw new Error(`Vite installation verification failed: ${verifyError.message}`);
               }
             }
           } catch (error) {
