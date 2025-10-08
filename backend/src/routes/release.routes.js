@@ -697,7 +697,12 @@ window.markerConfig = {
                             hasViteConfig,
                             hasViteInDevDeps: !!(packageJson.devDependencies && packageJson.devDependencies.vite),
                             viteVersion: packageJson.devDependencies?.vite,
-                            reactPluginVersion: packageJson.devDependencies?.['@vitejs/plugin-react']
+                            reactPluginVersion: packageJson.devDependencies?.['@vitejs/plugin-react'],
+                            moduleType: packageJson.type,
+                            hasTypeModule: packageJson.type === 'module',
+                            hasTypeCommonjs: packageJson.type === 'commonjs',
+                            engines: packageJson.engines,
+                            scripts: packageJson.scripts
                         });
                         
                         if (hasViteConfig || (packageJson.devDependencies && packageJson.devDependencies.vite)) {
@@ -706,6 +711,14 @@ window.markerConfig = {
                             // Force install Vite and React plugin to ensure they're available
                             console.log(`📦 [UPLOAD] Installing Vite and React plugin in: ${actualProjectPath}`);
                             console.log(`🔍 [UPLOAD] Project directory contents before Vite install:`, fs.readdirSync(actualProjectPath));
+                            
+                            // Handle ES modules vs CommonJS
+                            const isESModule = packageJson.type === 'module';
+                            console.log(`🔍 [UPLOAD] Module type: ${isESModule ? 'ES Module' : 'CommonJS'}`);
+                            
+                            if (isESModule) {
+                                console.log(`⚠️ [UPLOAD] ES Module project detected - this may affect package installation`);
+                            }
                             
                             try {
                                 // Install both regular and SWC React plugins to cover all cases
