@@ -6,7 +6,7 @@
  */
 
 // Server IP Configuration
-const SERVER_IP = '13.201.175.87';
+const SERVER_IP = '43.205.121.85';
 
 // Server Ports
 const FRONTEND_PORT = 5173;

@@ -20,16 +20,16 @@ echo ""
 echo "🌐 Testing Application URLs..."
 
 # Test backend
-echo "Testing backend on http://13.201.175.87:5000..."
-if curl -s --connect-timeout 5 http://13.201.175.87:5000 > /dev/null; then
+echo "Testing backend on http://43.205.121.85:5000..."
+if curl -s --connect-timeout 5 http://43.205.121.85:5000 > /dev/null; then
     echo "✅ Backend is responding"
 else
     echo "❌ Backend is not responding"
 fi
 
 # Test frontend
-echo "Testing frontend on http://13.201.175.87:5173..."
-if curl -s --connect-timeout 5 http://13.201.175.87:5173 > /dev/null; then
+echo "Testing frontend on http://43.205.121.85:5173..."
+if curl -s --connect-timeout 5 http://43.205.121.85:5173 > /dev/null; then
     echo "✅ Frontend is responding"
 else
     echo "❌ Frontend is not responding"

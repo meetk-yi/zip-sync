@@ -35,8 +35,8 @@ pm2 status
 
 echo ""
 echo "🌐 Access URLs:"
-echo "   Frontend: http://13.201.175.87:5173"
-echo "   Backend:  http://13.201.175.87:5000"
+echo "   Frontend: http://43.205.121.85:5173"
+echo "   Backend:  http://43.205.121.85:5000"
 echo ""
 echo "📝 Useful PM2 commands:"
 echo "   pm2 status          - Check application status"
