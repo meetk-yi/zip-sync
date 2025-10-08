@@ -700,8 +700,19 @@ window.markerConfig = {
                                 console.log(`✅ [UPLOAD] Vite is already installed locally`);
                             } catch (error) {
                                 console.log(`⚠️ [UPLOAD] Vite not found locally, installing...`);
-                                runCommand("npm install --save-dev vite @vitejs/plugin-react", actualProjectPath);
-                                console.log(`✅ [UPLOAD] Vite installed locally`);
+                                // Install Vite with compatible versions
+                                runCommand("npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0", actualProjectPath);
+                                console.log(`✅ [UPLOAD] Vite installed locally with compatible versions`);
+                            }
+                            
+                            // Additional check: ensure all Vite dependencies are properly installed
+                            try {
+                                console.log(`🔍 [UPLOAD] Verifying Vite installation...`);
+                                runCommand("npm list @vitejs/plugin-react", actualProjectPath);
+                                console.log(`✅ [UPLOAD] Vite React plugin is available`);
+                            } catch (error) {
+                                console.log(`⚠️ [UPLOAD] Installing missing Vite React plugin...`);
+                                runCommand("npm install --save-dev @vitejs/plugin-react@^4.0.0", actualProjectPath);
                             }
                         }
                     } catch (error) {
