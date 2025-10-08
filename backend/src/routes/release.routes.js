@@ -704,15 +704,46 @@ window.markerConfig = {
                             console.log(`🔍 [UPLOAD] Detected Vite project, ensuring Vite is installed locally...`);
                             
                             // Force install Vite and React plugin to ensure they're available
-                            console.log(`📦 [UPLOAD] Installing Vite and React plugin...`);
+                            console.log(`📦 [UPLOAD] Installing Vite and React plugin in: ${actualProjectPath}`);
+                            console.log(`🔍 [UPLOAD] Project directory contents before Vite install:`, fs.readdirSync(actualProjectPath));
+                            
                             try {
                                 // Install both regular and SWC React plugins to cover all cases
-                                runCommand("npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0 @vitejs/plugin-react-swc@^3.0.0", actualProjectPath);
+                                console.log(`📦 [UPLOAD] Running: npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0 @vitejs/plugin-react-swc@^3.0.0`);
+                                console.log(`📦 [UPLOAD] Working directory: ${actualProjectPath}`);
+                                console.log(`📦 [UPLOAD] Package.json exists: ${fs.existsSync(path.join(actualProjectPath, 'package.json'))}`);
+                                
+                                const installResult = runCommand("npm install --save-dev vite@^5.0.0 @vitejs/plugin-react@^4.0.0 @vitejs/plugin-react-swc@^3.0.0", actualProjectPath);
+                                console.log(`📦 [UPLOAD] Install command output:`, installResult.toString().trim());
                                 console.log(`✅ [UPLOAD] Vite and React plugins installed successfully`);
+                                
+                                // Check if Vite was actually installed
+                                const viteInstalled = fs.existsSync(path.join(actualProjectPath, 'node_modules', 'vite'));
+                                console.log(`🔍 [UPLOAD] Vite installation check:`, viteInstalled);
+                                
+                                // List node_modules contents to see what was actually installed
+                                if (fs.existsSync(path.join(actualProjectPath, 'node_modules'))) {
+                                    const nodeModulesContents = fs.readdirSync(path.join(actualProjectPath, 'node_modules'));
+                                    console.log(`🔍 [UPLOAD] node_modules contents:`, nodeModulesContents.slice(0, 20)); // Show first 20 items
+                                }
+                                
+                                if (!viteInstalled) {
+                                    console.log(`⚠️ [UPLOAD] Vite not found after installation, trying alternative approach...`);
+                                    // Try installing without version constraints
+                                    const altResult = runCommand("npm install --save-dev vite @vitejs/plugin-react @vitejs/plugin-react-swc", actualProjectPath);
+                                    console.log(`📦 [UPLOAD] Alternative install output:`, altResult.toString().trim());
+                                    console.log(`✅ [UPLOAD] Alternative Vite installation completed`);
+                                    
+                                    // Check again after alternative installation
+                                    const viteInstalledAfterAlt = fs.existsSync(path.join(actualProjectPath, 'node_modules', 'vite'));
+                                    console.log(`🔍 [UPLOAD] Vite installation check after alternative:`, viteInstalledAfterAlt);
+                                }
+                                
                             } catch (installError) {
                                 console.error(`❌ [UPLOAD] Failed to install Vite:`, installError.message);
                                 // Try alternative installation
                                 try {
+                                    console.log(`🔄 [UPLOAD] Trying alternative installation...`);
                                     runCommand("npm install --save-dev vite @vitejs/plugin-react @vitejs/plugin-react-swc", actualProjectPath);
                                     console.log(`✅ [UPLOAD] Vite installed with latest versions`);
                                 } catch (altError) {
