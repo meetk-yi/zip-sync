@@ -770,6 +770,11 @@ async function checkRepoExists(repoName) {
 
   return response.status === 200;
 }
+router.get(
+  "/",
+  authenticateToken,
+  asyncHandler(projectController.list)
+);
 
 
 
