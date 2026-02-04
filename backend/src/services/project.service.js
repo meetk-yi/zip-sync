@@ -200,7 +200,11 @@ export const getProjectByIdService = async (projectId, user) => {
                     }
                 }
             },
-            releases: true
+            releases: {
+                include: {
+                    versions: true
+                }
+            }
         }
     });
 };
