@@ -17,11 +17,11 @@ const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "516448789962-jhsndv38
 const LoginPage = () => {
     const { user, login, checkAuth } = useAuth();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState("login");
-    const [credentials, setCredentials] = useState({
-        name: '',
-        email: '',
-        password: '',
+    const [isLogin, setIsLogin] = useState(true);
+    const [credentials, setCredentials] = useState({ 
+        name: '', 
+        email: '', 
+        password: '', 
         confirmPassword: '',
         role: 'manager'
     });
@@ -39,15 +39,13 @@ const LoginPage = () => {
         setLoading(true);
         setError('');
 
-        const isLogin = activeTab === 'login';
-
         try {
             if (isLogin) {
                 const result = await login({
                     email: credentials.email,
                     password: credentials.password
                 });
-
+                
                 if (result.success) {
                     navigate('/dashboard');
                 } else {
@@ -73,7 +71,7 @@ const LoginPage = () => {
                     email: credentials.email,
                     password: credentials.password
                 });
-
+                
                 if (result.success) {
                     navigate('/dashboard');
                 } else {
@@ -83,7 +81,7 @@ const LoginPage = () => {
         } catch (err) {
             setError(err.error || 'An error occurred');
         }
-
+        
         setLoading(false);
     };
 

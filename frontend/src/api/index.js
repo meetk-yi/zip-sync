@@ -64,16 +64,6 @@ export const registerUser = async (userData) => {
     }
 };
 
-// Function to fetch all managers
-export const fetchManagers = async () => {
-    try {
-        const response = await api.get('/api/auth/managers');
-        return response.data;
-    } catch (error) {
-        throw error.response?.data || { error: 'Failed to fetch managers' };
-    }
-};
-
 // Function to create a new project
 export const createProject = async (projectData) => {
     console.log(projectData);

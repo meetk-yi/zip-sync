@@ -1,677 +1,368 @@
-import React, { useEffect, useState } from "react";
-import {
-  fetchReleases,
-  createRelease,
-  toggleReleaseLock,
-  uploadToRelease,
-  getRoadmapItemsByProjectId,
-} from "../api";
-import { useAuth } from "../context/AuthContext";
-import { toast } from "sonner";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { PageHeader } from "./PageHeader";
-import { Spinner } from "./ui/spinner";
-import { ChevronDown, Lock, Unlock } from "lucide-react";
-import { Badge } from "./ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+import React, { useEffect, useState } from 'react';
+import { fetchReleases, createRelease, toggleReleaseLock, uploadToRelease } from '../api';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+
 const ReleaseManagement = ({ projectId, projectName }) => {
-  const { user } = useAuth();
+    const { user } = useAuth();
+    const { showSuccess, showError, showInfo, showWarning } = useToast();
+    const [releases, setReleases] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [showCreateForm, setShowCreateForm] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [selectedRelease, setSelectedRelease] = useState('');
+    const [uploadFile, setUploadFile] = useState(null);
+    const [version, setVersion] = useState('');
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadStatus, setUploadStatus] = useState('');
 
-  const [releases, setReleases] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [selectedRelease, setSelectedRelease] = useState("");
-  const [uploadFile, setUploadFile] = useState(null);
-  const [version, setVersion] = useState("");
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState("");
+    const [newRelease, setNewRelease] = useState({
+        name: '',
+        description: ''
+    });
 
-  const [roadmaps, setRoadmaps] = useState([]);
-  const [roadmapsLoading, setRoadmapsLoading] = useState(false);
-  const [roadmapError, setRoadmapError] = useState("");
-  const [selectedRoadmapItemIds, setSelectedRoadmapItemIds] = useState([]);
-
-
-  const [newRelease, setNewRelease] = useState({
-    name: "",
-    description: "",
-  });
-
-  useEffect(() => {
-    if (projectId) {
-      loadReleases();
-      loadRoadmaps();
-    }
-  }, [projectId]);
-
-  const loadReleases = async () => {
-    try {
-      setLoading(true);
-      const data = await fetchReleases(projectId);
-      setReleases(data);
-    } catch (err) {
-      setError(err.message || "Failed to load releases");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadRoadmaps = async () => {
-    try {
-      setRoadmapsLoading(true);
-      setRoadmapError("");
-      const data = await getRoadmapItemsByProjectId(projectId);
-      setRoadmaps(data || []);
-    } catch (err) {
-      setRoadmapError(err.error || err.message || "Failed to load roadmaps");
-      setRoadmaps([]);
-    } finally {
-      setRoadmapsLoading(false);
-    }
-  };
-
-  const handleCreateRelease = async (e) => {
-    e.preventDefault();
-    if (!newRelease.name.trim()) return;
-
-    try {
-      setCreating(true);
-      await createRelease({
-        projectId: Number(projectId),
-        name: newRelease.name.trim(),
-        description: newRelease.description.trim() || null,
-      });
-      setNewRelease({ name: "", description: "" });
-      setShowCreateForm(false);
-      await loadReleases();
-      toast.success(`Release "${newRelease.name}" created successfully!`);
-    } catch (err) {
-      const errorMessage = err.error || "Failed to create release";
-      setError(errorMessage);
-      toast.error(`${errorMessage}`);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleLockToggle = async (releaseId, currentLockStatus) => {
-    try {
-      const res = await toggleReleaseLock(releaseId, !currentLockStatus);
-      toast.success(res.message)
-      await loadReleases();
-    } catch (err) {
-      toast.error(err.error || "Failed to toggle release lock");
-      setError(err.error || "Failed to toggle release lock");
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.type === "application/zip" || file.name.endsWith(".zip")) {
-        setUploadFile(file);
-        setUploadStatus("");
-      } else {
-        setUploadStatus("Please select a ZIP file");
-        setUploadFile(null);
-      }
-    }
-  };
-
-  const handleUpload = async (e) => {
-    e.preventDefault();
-
-    if (!selectedRelease || !uploadFile) return;
-    if (roadmaps.length > 0) {
-      if (selectedRoadmapItemIds.length === 0) {
-        const message = "Please select at least one roadmap item.";
-        setUploadStatus(message);
-        toast.error(message);
-        return;
-      }
-    }
-
-    try {
-      const selectedRoadmapIds = Array.from(
-        new Set(
-          selectedRoadmapItemIds
-            .map((itemId) => getRoadmapIdForItem(itemId))
-            .filter(Boolean),
-        ),
-      );
-
-      setUploading(true);
-      setUploadStatus("Uploading and building project...");
-      setUploadProgress(0);
-      toast.info("Uploading and building project...");
-
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
-      }, 500);
-
-      const result = await uploadToRelease(
-        selectedRelease,
-        uploadFile,
-        version || null,
-        selectedRoadmapItemIds
-      );
-
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      setUploadStatus(
-        `Upload successful! Version: ${result.version.version} - Build URL: ${result.buildUrl}`,
-      );
-      setUploadFile(null);
-      setSelectedRelease("");
-      setVersion("");
-      setSelectedRoadmapItemIds([]);
-      document.getElementById("file-input").value = "";
-      await loadReleases();
-      toast.success(
-        `Project uploaded successfully! Version: ${result.version.version}`,
-      );
-    } catch (err) {
-      const errorMessage = err.error || err.message || "Upload failed";
-      setUploadStatus(`Upload failed: ${errorMessage}`);
-      toast.error(`Upload failed: ${errorMessage}`);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const canManageReleases = user?.role === "admin" || user?.role === "manager";
-  const getRoadmapIdForItem = (itemId) => {
-    for (const roadmap of roadmaps) {
-      if (roadmap.items?.some((item) => item.id.toString() === itemId)) {
-        return roadmap.id;
-      }
-    }
-    return null;
-  };
-
-  const selectedItems = selectedRoadmapItemIds
-    .map((itemId) => {
-      for (const roadmap of roadmaps) {
-        const item = roadmap.items?.find(
-          (roadmapItem) => roadmapItem.id === itemId,
-        );
-        if (item) {
-          return {
-            id: itemId,
-            title: item.title,
-            roadmapTitle: roadmap.title,
-          };
+    useEffect(() => {
+        if (projectId) {
+            loadReleases();
         }
-      }
-      return null;
-    })
-    .filter(Boolean);
+    }, [projectId]);
 
-  const removeSelectedItem = (itemId, event) => {
-    event.stopPropagation();
-    setSelectedRoadmapItemIds((prev) => prev.filter((id) => id !== itemId));
-  };
+    const loadReleases = async () => {
+        try {
+            setLoading(true);
+            const data = await fetchReleases(projectId);
+            setReleases(data);
+        } catch (err) {
+            setError(err.message || 'Failed to load releases');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[300px] text-slate-500">
-        <div className="w-8 h-8 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin mb-4"></div>
-        Loading releases...
-      </div>
-    );
-  }
+    const handleCreateRelease = async (e) => {
+        e.preventDefault();
+        if (!newRelease.name.trim()) return;
 
-  return (
-    <div>
-      <PageHeader title="Release Management" description="Manage releases and upload ZIP files">{canManageReleases && (
-        <Button
-          className="text-white gap-2"
-          onClick={() => setShowCreateForm(true)}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-          </svg>
-          Create Release
-        </Button>
-      )}</PageHeader>
+        try {
+            setCreating(true);
+            showInfo('Creating release...');
+            await createRelease({
+                projectId,
+                name: newRelease.name.trim(),
+                description: newRelease.description.trim() || null
+            });
+            setNewRelease({ name: '', description: '' });
+            setShowCreateForm(false);
+            await loadReleases();
+            showSuccess(`Release "${newRelease.name}" created successfully!`);
+        } catch (err) {
+            const errorMessage = err.message || 'Failed to create release';
+            setError(errorMessage);
+            showError(`Failed to create release: ${errorMessage}`);
+        } finally {
+            setCreating(false);
+        }
+    };
 
+    const handleLockToggle = async (releaseId, currentLockStatus) => {
+        try {
+            await toggleReleaseLock(releaseId, !currentLockStatus);
+            await loadReleases();
+        } catch (err) {
+            setError(err.message || 'Failed to toggle release lock');
+        }
+    };
 
-      {/* Create Release Form */}
-      {showCreateForm && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h3 className="text-lg font-semibold text-slate-800">
-              Create New Release
-            </h3>
-          </div>
-          <div className="p-6">
-            <form onSubmit={handleCreateRelease}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Release Name
-                </label>
-                <Input
-                  type="text"
-                  value={newRelease.name}
-                  onChange={(e) =>
-                    setNewRelease({ ...newRelease, name: e.target.value })
-                  }
-                  placeholder="Enter release name"
-                  required
-                />
-              </div>
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.type === 'application/zip' || file.name.endsWith('.zip')) {
+                setUploadFile(file);
+                setUploadStatus('');
+            } else {
+                setUploadStatus('Please select a ZIP file');
+                setUploadFile(null);
+            }
+        }
+    };
 
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Release Description (Optional)
-                </label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-slate-200 bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  value={newRelease.description}
-                  onChange={(e) =>
-                    setNewRelease({
-                      ...newRelease,
-                      description: e.target.value,
-                    })
-                  }
-                  placeholder="Enter release description"
-                  rows="3"
-                />
-              </div>
+    const handleUpload = async (e) => {
+        e.preventDefault();
+        if (!selectedRelease || !uploadFile) return;
 
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  className="text-white"
-                  disabled={creating || !newRelease.name.trim()}
-                >
-                  {creating ? <> <Spinner /> Creating</> : "Create Release"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowCreateForm(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+        try {
+            setUploading(true);
+            setUploadStatus('Uploading and building project...');
+            setUploadProgress(0);
+            showInfo('Uploading and building project...');
 
-      {/* Upload to Release Form */}
-      {canManageReleases && releases.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h3 className="text-lg font-semibold text-slate-800">
-              Upload to Release
-            </h3>
-          </div>
-          <div className="p-6">
-            <form onSubmit={handleUpload}>
+            // Simulate progress
+            const progressInterval = setInterval(() => {
+                setUploadProgress(prev => {
+                    if (prev >= 90) {
+                        clearInterval(progressInterval);
+                        return prev;
+                    }
+                    return prev + 10;
+                });
+            }, 500);
 
-              <div className="grid md:grid-cols-2 grid-cols-1 gap-4">
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Select Release
-                  </label>
+            const result = await uploadToRelease(selectedRelease, uploadFile, version || null);
 
+            clearInterval(progressInterval);
+            setUploadProgress(100);
 
-                  <Select
-                    value={selectedRelease}
-                    onValueChange={(value) => {
-                      if (value === "CREATE_NEW") {
-                        setShowCreateForm(true);
-                        setSelectedRelease("");
-                      } else {
-                        setSelectedRelease(value);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose a release..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {!releases.some((r) => !r.isLocked) && (
-                        <SelectItem value="CREATE_NEW" className="text-emerald-600 font-medium">
-                          + Create New Release
-                        </SelectItem>
-                      )}
-                      {releases.map((release) => (
-                        <SelectItem
-                          key={release.id}
-                          value={release.id.toString()}
-                          disabled={release.isLocked}
-                        >
-                          {release.name} {release.isLocked ? "(Locked)" : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            setUploadStatus(`✅ Upload successful! Version: ${result.version.version} - Build URL: ${result.buildUrl}`);
+            setUploadFile(null);
+            setSelectedRelease('');
+            setVersion('');
+            document.getElementById('file-input').value = '';
+            await loadReleases();
+            showSuccess(`Project uploaded successfully! Version: ${result.version.version}`);
+        } catch (err) {
+            const errorMessage = err.error || err.message || 'Upload failed';
+            setUploadStatus(`❌ Upload failed: ${errorMessage}`);
+            showError(`Upload failed: ${errorMessage}`);
+        } finally {
+            setUploading(false);
+        }
+    };
 
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Version (Optional)
-                  </label>
-                  <Input
-                    type="text"
-                    value={version}
-                    onChange={(e) => setVersion(e.target.value)}
-                    placeholder="e.g., 1.0.0, 1.1.0, 2.0.0"
-                  />
-                  <div className="text-xs text-slate-500 mt-1">
-                    Leave empty for auto-increment
-                  </div>
-                </div>
-              </div>
+    const canManageReleases = user?.role === 'admin' || user?.role === 'manager';
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Roadmap Items Included
-                </label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-between gap-2 p-2 hover:bg-transparent"
-                      disabled={roadmapsLoading || roadmaps.length === 0}
-                    >
-                      {roadmapsLoading ? (
-                        "Loading roadmaps..."
-                      ) : roadmaps.length === 0 ? (
-                        "No roadmaps found"
-                      ) : selectedItems.length > 0 ? (
-                        <span className="flex flex-wrap gap-2">
-                          {selectedItems.map((item) => (
-                            <span
-                              key={item.id}
-                              className="inline-flex items-center gap-1 rounded-sm bg-secondary px-2 py-1 text-sm"
-                            >
-                              <span className="font-medium">{item.title}</span>
-                            </span>
-                          ))}
-                        </span>
-                      ) : (
-                        "Select roadmap items"
-                      )}
-                      <ChevronDown className="h-4 w-4 text-slate-500" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-80">
-                    <DropdownMenuLabel>Roadmaps</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {roadmaps.map((roadmap) => (
-                      <div key={roadmap.id}>
-                        <DropdownMenuLabel className="text-primary">
-                          {roadmap.title}
-                        </DropdownMenuLabel>
-                        {roadmap.items?.length ? (
-                          roadmap.items.map((item) => {
-                            const itemId = item.id
-                            const isChecked =
-                              selectedRoadmapItemIds.includes(itemId);
-                            return (
-                              <DropdownMenuCheckboxItem
-                                key={item.id}
-                                checked={isChecked}
-                                onSelect={(event) => event.preventDefault()}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setSelectedRoadmapItemIds((prev) => [
-                                      ...prev,
-                                      itemId,
-                                    ]);
-                                  } else {
-                                    setSelectedRoadmapItemIds((prev) =>
-                                      prev.filter((id) => id !== itemId),
-                                    );
-                                  }
-                                }}
-                              >
-                                <span className="text-sm">
-                                  {item.title}
-                                </span>
-                              </DropdownMenuCheckboxItem>
-                            );
-                          })
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-slate-500">
-                            No items found for this roadmap.
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {roadmapError && (
-                  <div className="text-xs text-red-600 mt-1">
-                    {roadmapError}
-                  </div>
-                )}
-                <div className="text-xs text-slate-500 mt-1">
-                  Select one or more items from the different roadmap.
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Upload ZIP File
-                </label>
-                <input
-                  id="file-input"
-                  type="file"
-                  accept=".zip"
-                  onChange={handleFileSelect}
-                  className="flex w-full rounded-md border border-slate-200 bg-transparent px-3 py-2 text-sm shadow-sm file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-slate-700 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  required
-                />
-                <div className="text-xs text-slate-500 mt-1">
-                  Only ZIP files are allowed. Maximum size: 50MB
-                </div>
-              </div>
-
-              {uploadFile && (
-                <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg mb-4">
-                  <div className="font-medium text-blue-900 mb-1">
-                    Selected File:
-                  </div>
-                  <div className="text-sm text-blue-700">
-                    📁 {uploadFile.name} (
-                    {(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
-                  </div>
-                </div>
-              )}
-
-              {uploading && (
-                <div className="mb-4">
-                  <div className="flex justify-between mb-2 text-sm text-slate-700">
-                    <span>Uploading...</span>
-                    <span>{uploadProgress}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              )}
-
-              {uploadStatus && (
-                <div
-                  className={`p-3 rounded-lg mb-4 border ${uploadStatus.includes("✅")
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                    : uploadStatus.includes("❌")
-                      ? "bg-red-50 border-red-200 text-red-800"
-                      : "bg-blue-50 border-blue-200 text-blue-800"
-                    }`}
-                >
-                  {uploadStatus}
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  className="text-white"
-                  disabled={uploading || !selectedRelease || !uploadFile}
-                >
-                  {uploading ? <> <Spinner /> Uploading</> : "Upload & Build"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedRelease("");
-                    setUploadFile(null);
-                    setVersion("");
-                    setSelectedRoadmapItemIds([]);
-                    setUploadStatus("");
-                    setUploadProgress(0);
-                    document.getElementById("file-input").value = "";
-                  }}
-                  disabled={uploading}
-                >
-                  Clear
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Releases List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800">
-            All Releases ({releases.length})
-          </h3>
-        </div>
-        <div className="p-6">
-          {releases.length === 0 ? (
-            <div className="text-center py-16 text-slate-500 flex flex-col items-center">
-              <div className="mb-4 opacity-50 text-slate-400">
-                <svg
-                  width="64"
-                  height="64"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-medium text-slate-700 mb-2">
-                No Releases Found
-              </h3>
-              <p className="mb-6">Create your first release to get started.</p>
-              {canManageReleases && (
-                <Button
-                  className="text-white"
-                  onClick={() => setShowCreateForm(true)}
-                >
-                  Create Release
-                </Button>
-              )}
+    if (loading) {
+        return (
+            <div className="loading">
+                <div className="spinner"></div>
+                Loading releases...
             </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-6">
-              {releases.map((release, index) => (
-                <div
-                  key={release.id}
-                  className="relative border border-slate-200 rounded-xl p-6 hover:shadow-md transition-shadow group bg-slate-50/30"
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <h4 className="text-lg font-semibold text-slate-800">
-                      {release.name}
-                    </h4>
-                    <div className="flex gap-2 items-center">
-                      {release.isLocked ?
-                        <Badge className="bg-emerald-100 text-emerald-700"><Lock size={14} /> Locked</Badge> :
-                        <Badge className="bg-red-100 text-red-700"><Unlock size={14} /> Unlocked</Badge>}
-                      {canManageReleases && index === 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={
-                            release.isLocked
-                              ? "text-amber-600 hover:text-amber-700"
-                              : "text-slate-600"
-                          }
-                          onClick={() =>
-                            handleLockToggle(release.id, release.isLocked)
-                          }
-                        >
-                          {release.isLocked ? "Unlock" : "Lock"}
-                        </Button>
-                      )}
+        );
+    }
+
+    return (
+        <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <div>
+                    <h2 style={{ fontSize: '24px', fontWeight: '600', color: '#2c3e50', marginBottom: '8px' }}>
+                        Release Management - {projectName}
+                    </h2>
+                    <p style={{ color: '#6c757d', fontSize: '16px' }}>
+                        Manage releases and upload ZIP files
+                    </p>
+                </div>
+                {canManageReleases && (
+                    <button 
+                        className="btn btn-primary"
+                        onClick={() => setShowCreateForm(true)}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '8px' }}>
+                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                        </svg>
+                        Create Release
+                    </button>
+                )}
+            </div>
+
+            {error && (
+                <div style={{ 
+                    background: '#f8d7da', 
+                    color: '#721c24', 
+                    padding: '12px 16px', 
+                    borderRadius: '8px', 
+                    marginBottom: '20px',
+                    border: '1px solid #f5c6cb'
+                }}>
+                    {error}
+                </div>
+            )}
+
+            {/* Create Release Form */}
+            {showCreateForm && (
+                <div className="card" style={{ marginBottom: '24px' }}>
+                    <div className="card-header">
+                        <h3 className="card-title">Create New Release</h3>
                     </div>
-                  </div>
+                    <div className="card-body">
+                        <form onSubmit={handleCreateRelease}>
+                            <div className="form-group">
+                                <label className="form-label">Release Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={newRelease.name}
+                                    onChange={(e) => setNewRelease({ ...newRelease, name: e.target.value })}
+                                    placeholder="Enter release name"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Release Description/Roadmap</label>
+                                <textarea
+                                    className="form-textarea"
+                                    value={newRelease.description}
+                                    onChange={(e) => setNewRelease({ ...newRelease, description: e.target.value })}
+                                    placeholder="Enter release description or roadmap"
+                                    rows="3"
+                                />
+                            </div>
 
-                  <p className="text-slate-600 mb-4 whitespace-pre-wrap text-sm">
-                    {release.description || "No description provided"}
-                  </p>
-
-                  <div className="flex items-center gap-4 text-xs text-slate-500 mb-4 pb-4 border-b border-slate-200">
-                    <span>
-                      Created:{" "}
-                      {new Date(release.createdAt).toLocaleDateString()}
-                    </span>
-                    <span>By: {release.creator.name}</span>
-                  </div>
-
-                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-sm text-slate-600 mb-4">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <span className="text-slate-400 font-normal">
-                          Release ID:
-                        </span>{" "}
-                        <span className="font-mono text-xs">{release.id}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 font-normal">
-                          Versions:
-                        </span>{" "}
-                        {release.versions.length}
-                      </div>
-                      {release.versions.length > 0 && (
-                        <div>
-                          <span className="text-slate-400 font-normal">
-                            Latest:
-                          </span>{" "}
-                          v{release.versions[0].version}
-                        </div>
-                      )}
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button 
+                                    type="submit" 
+                                    className="btn btn-primary"
+                                    disabled={creating || !newRelease.name.trim()}
+                                >
+                                    {creating ? 'Creating...' : 'Create Release'}
+                                </button>
+                                <button 
+                                    type="button" 
+                                    className="btn btn-secondary"
+                                    onClick={() => setShowCreateForm(false)}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                  </div>
+                </div>
+            )}
+
+            {/* Upload to Release Form */}
+            {canManageReleases && releases.length > 0 && (
+                <div className="card" style={{ marginBottom: '24px' }}>
+                    <div className="card-header">
+                        <h3 className="card-title">Upload to Release</h3>
+                    </div>
+                    <div className="card-body">
+                        <form onSubmit={handleUpload}>
+                            <div className="form-group">
+                                <label className="form-label">Select Release *</label>
+                                <select
+                                    className="form-input"
+                                    value={selectedRelease}
+                                    onChange={(e) => setSelectedRelease(e.target.value)}
+                                    required
+                                >
+                                    <option value="">Choose a release...</option>
+                                    {releases.map((release) => (
+                                        <option key={release.id} value={release.id} disabled={release.isLocked}>
+                                            {release.name} {release.isLocked ? '(Locked)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label">Version</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={version}
+                                    onChange={(e) => setVersion(e.target.value)}
+                                    placeholder="e.g., 1.0.0, 1.1.0, 2.0.0"
+                                />
+                                <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '4px' }}>
+                                    Leave empty for auto-increment
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label">Upload ZIP File *</label>
+                                <input
+                                    id="file-input"
+                                    type="file"
+                                    accept=".zip"
+                                    onChange={handleFileSelect}
+                                    className="form-input"
+                                    required
+                                />
+                                <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '4px' }}>
+                                    Only ZIP files are allowed. Maximum size: 50MB
+                                </div>
+                            </div>
+
+                            {uploadFile && (
+                                <div style={{ 
+                                    padding: '12px', 
+                                    background: '#e7f3ff', 
+                                    borderRadius: '8px', 
+                                    marginBottom: '16px',
+                                    border: '1px solid #b3d9ff'
+                                }}>
+                                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Selected File:</div>
+                                    <div style={{ fontSize: '14px', color: '#0066cc' }}>
+                                        📁 {uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
+                                    </div>
+                                </div>
+                            )}
+
+                            {uploading && (
+                                <div style={{ marginBottom: '16px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <span>Uploading...</span>
+                                        <span>{uploadProgress}%</span>
+                                    </div>
+                                    <div style={{ 
+                                        width: '100%', 
+                                        height: '8px', 
+                                        background: '#e9ecef', 
+                                        borderRadius: '4px',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{ 
+                                            width: `${uploadProgress}%`, 
+                                            height: '100%', 
+                                            background: '#00B48B',
+                                            transition: 'width 0.3s ease'
+                                        }}></div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {uploadStatus && (
+                                <div style={{ 
+                                    padding: '12px', 
+                                    borderRadius: '8px', 
+                                    marginBottom: '16px',
+                                    background: uploadStatus.includes('✅') ? '#d4edda' : uploadStatus.includes('❌') ? '#f8d7da' : '#d1ecf1',
+                                    color: uploadStatus.includes('✅') ? '#155724' : uploadStatus.includes('❌') ? '#721c24' : '#0c5460',
+                                    border: `1px solid ${uploadStatus.includes('✅') ? '#c3e6cb' : uploadStatus.includes('❌') ? '#f5c6cb' : '#bee5eb'}`
+                                }}>
+                                    {uploadStatus}
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button 
+                                    type="submit" 
+                                    className="btn btn-primary"
+                                    disabled={uploading || !selectedRelease || !uploadFile}
+                                >
+                                    {uploading ? 'Uploading...' : 'Upload & Build'}
+                                </button>
+                                <button 
+                                    type="button" 
+                                    className="btn btn-secondary"
+                                    onClick={() => {
+                                        setSelectedRelease('');
+                                        setUploadFile(null);
+                                        setVersion('');
+                                        setUploadStatus('');
+                                        setUploadProgress(0);
+                                        document.getElementById('file-input').value = '';
+                                    }}
+                                    disabled={uploading}
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
                   {
                     release.versions.length > 0 && (
@@ -706,29 +397,111 @@ const ReleaseManagement = ({ projectId, projectName }) => {
                               </div>
 
                             </div>
-                            {version.buildUrl && (
-                              <a
-                                href={version.buildUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-emerald-600 hover:text-emerald-700 text-xs font-medium flex items-center gap-1"
-                              >
-                                Live Build ↗
-                              </a>
+                            <h3>No Releases Found</h3>
+                            <p>Create your first release to get started.</p>
+                            {canManageReleases && (
+                                <button 
+                                    className="btn btn-primary"
+                                    onClick={() => setShowCreateForm(true)}
+                                >
+                                    Create Release
+                                </button>
                             )}
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  }
+                        </div>
+                    ) : (
+                        <div className="releases-grid">
+                            {releases.map((release) => (
+                                <div key={release.id} className="release-card">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                        <h4 className="release-title">{release.name}</h4>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <span style={{ 
+                                                padding: '4px 8px', 
+                                                borderRadius: '4px', 
+                                                fontSize: '12px',
+                                                background: release.isLocked ? '#f8d7da' : '#d4edda',
+                                                color: release.isLocked ? '#721c24' : '#155724'
+                                            }}>
+                                                {release.isLocked ? '🔒 Locked' : '🔓 Unlocked'}
+                                            </span>
+                                            {canManageReleases && (
+                                                <button 
+                                                    className={`btn btn-sm ${release.isLocked ? 'btn-warning' : 'btn-success'}`}
+                                                    onClick={() => handleLockToggle(release.id, release.isLocked)}
+                                                >
+                                                    {release.isLocked ? 'Unlock' : 'Lock'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    <p className="release-description">
+                                        {release.description || 'No description provided'}
+                                    </p>
+                                    
+                                    <div className="release-meta">
+                                        <span>Created: {new Date(release.createdAt).toLocaleDateString()}</span>
+                                        <span>By: {release.creator.name}</span>
+                                    </div>
+
+                                    <div style={{ 
+                                        fontSize: '12px', 
+                                        color: '#6c757d', 
+                                        marginBottom: '16px',
+                                        padding: '8px',
+                                        background: '#f8f9fa',
+                                        borderRadius: '6px'
+                                    }}>
+                                        <div>Release ID: {release.id}</div>
+                                        <div>Versions: {release.versions.length}</div>
+                                        {release.versions.length > 0 && (
+                                            <div>Latest Version: {release.versions[0].version}</div>
+                                        )}
+                                    </div>
+
+                                    {release.versions.length > 0 && (
+                                        <div className="release-versions">
+                                            <h5 style={{ fontSize: '14px', marginBottom: '8px', color: '#2c3e50' }}>Versions:</h5>
+                                            {release.versions.map((version) => (
+                                                <div key={version.id} style={{ 
+                                                    padding: '8px', 
+                                                    background: '#f8f9fa', 
+                                                    borderRadius: '4px', 
+                                                    marginBottom: '4px',
+                                                    fontSize: '12px'
+                                                }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <span style={{ fontWeight: '500' }}>v{version.version}</span>
+                                                        <span style={{ color: '#6c757d' }}>
+                                                            {new Date(version.createdAt).toLocaleDateString()}
+                                                        </span>
+                                                    </div>
+                                                    {version.buildUrl && (
+                                                        <a 
+                                                            href={version.buildUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            style={{ 
+                                                                color: '#00B48B', 
+                                                                textDecoration: 'none',
+                                                                fontSize: '11px'
+                                                            }}
+                                                        >
+                                                            🔗 Live Build
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
-              ))}
             </div>
-          )}
         </div>
-      </div>
-    </div >
-  );
+    );
 };
 
 export default ReleaseManagement;
