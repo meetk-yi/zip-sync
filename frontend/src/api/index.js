@@ -64,16 +64,6 @@ export const registerUser = async (userData) => {
     }
 };
 
-// Function to fetch all managers
-export const fetchManagers = async () => {
-    try {
-        const response = await api.get('/api/auth/managers');
-        return response.data;
-    } catch (error) {
-        throw error.response?.data || { error: 'Failed to fetch managers' };
-    }
-};
-
 // Function to create a new project
 export const createProject = async (projectData) => {
     console.log(projectData);
@@ -245,45 +235,5 @@ export const testJiraConnection = async () => {
         return response.data;
     } catch (error) {
         throw error.response?.data || { error: 'Failed to test Jira connection' };
-    }
-};
-
-// Function to update a project
-export const updateProject = async (projectId, projectData) => {
-    try {
-        const response = await api.put(`/api/projects/${projectId}`, projectData);
-        return response.data;
-    } catch (error) {
-        throw error.response?.data || { error: 'Failed to update project' };
-    }
-};
-
-// Function to delete a roadmap
-export const deleteRoadmap = async (roadmapId) => {
-    try {
-        const response = await api.delete(`/api/roadmaps/${roadmapId}`);
-        return response.data;
-    } catch (error) {
-        throw error.response?.data || { error: 'Failed to delete roadmap' };
-    }
-};
-
-// Function to delete a roadmap item
-export const deleteRoadmapItem = async (roadmapId, itemId) => {
-    try {
-        const response = await api.delete(`/api/roadmaps/${roadmapId}/items/${itemId}`);
-        return response.data;
-    } catch (error) {
-        throw error.response?.data || { error: 'Failed to delete roadmap item' };
-    }
-};
-
-//Get Roadmap Items by projectID
-export const getRoadmapItemsByProjectId = async (projectId) => {
-    try {
-        const response = await api.get(`/api/roadmaps/project/${projectId}/items`);
-        return response.data;
-    } catch (error) {
-        throw error.response?.data || { error: 'Failed to fetch roadmap items' };
     }
 };
