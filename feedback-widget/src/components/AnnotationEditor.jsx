@@ -1,17 +1,12 @@
-import React, { useEffect, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Tldraw, exportToBlob } from 'tldraw';
 import 'tldraw/tldraw.css';
 
-const AnnotationEditor = forwardRef(({ screenshot, metadata, onSave }, ref) => {
+const AnnotationEditor = ({ screenshot, metadata, onSave }) => {
   const [editor, setEditor] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
-
-  // Expose save method to parent
-  useImperativeHandle(ref, () => ({
-    save: handleSave
-  }));
 
   useEffect(() => {
     if (!editor || !screenshot) {
@@ -133,19 +128,6 @@ const AnnotationEditor = forwardRef(({ screenshot, metadata, onSave }, ref) => {
       onSave(blob, screenshot, description);
     }
   };
-
-  // Listen for submit button click
-  useEffect(() => {
-    const handleSubmitClick = () => {
-      handleSave();
-    };
-
-    const submitBtn = document.getElementById('feedback-submit-btn');
-    if (submitBtn) {
-      submitBtn.addEventListener('click', handleSubmitClick);
-      return () => submitBtn.removeEventListener('click', handleSubmitClick);
-    }
-  }, [editor, screenshot, description]);
 
   // Custom tldraw components to hide unwanted UI
   const components = {
@@ -276,11 +258,18 @@ const AnnotationEditor = forwardRef(({ screenshot, metadata, onSave }, ref) => {
             <span>{description.length}/2000</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          className="feedback-widget-btn feedback-widget-btn-primary"
+          onClick={handleSave}
+          style={{ marginTop: 'auto', alignSelf: 'flex-start' }}
+        >
+          Submit Feedback
+        </button>
       </div>
     </div>
   );
-});
-
-AnnotationEditor.displayName = 'AnnotationEditor';
+};
 
 export default AnnotationEditor;

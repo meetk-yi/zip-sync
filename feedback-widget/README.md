@@ -172,8 +172,7 @@ feedback-widget/
 │   ├── components/
 │   │   ├── Modal.jsx
 │   │   ├── ScreenshotCapture.jsx
-│   │   ├── AnnotationEditor.jsx
-│   │   └── DescriptionForm.jsx
+│   │   └── AnnotationEditor.jsx
 │   ├── services/
 │   │   ├── api.service.js
 │   │   ├── screenshot.service.js

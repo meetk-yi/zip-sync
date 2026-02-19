@@ -227,10 +227,9 @@
     // Initialize the widget
     FeedbackWidget.init({
       projectId: 'test-project-123',
-      apiUrl: 'http://localhost:3000', // Change this to your backend URL
+      apiUrl: 'http://localhost:5000', // Change this to your backend URL
       onSuccess: (data) => {
         console.log('✅ Feedback submitted successfully:', data);
-        alert(`Feedback submitted! Ticket: ${data.jiraTicket || 'N/A'}`);
       },
       onError: (error) => {
         console.error('❌ Feedback submission failed:', error);

@@ -84,8 +84,7 @@ feedback-widget/
 │   └── Components
 │       ├── Modal
 │       ├── ScreenshotCapture
-│       ├── AnnotationEditor
-│       └── DescriptionForm
+│       └── AnnotationEditor
 │
 ├── Components/
 │   ├── Modal.jsx
@@ -96,16 +95,11 @@ feedback-widget/
 │   │   ├── Capture full page button
 │   │   └── Error handling
 │   │
-│   ├── AnnotationEditor.jsx
-│   │   ├── Canvas drawing
-│   │   ├── Tools (pen, arrow, rectangle, text)
-│   │   ├── Color picker
-│   │   └── Undo/Redo
-│   │
-│   └── DescriptionForm.jsx
-│       ├── Textarea with validation
-│       ├── Screenshot preview
-│       └── Metadata display
+│   └── AnnotationEditor.jsx
+│       ├── Canvas drawing (tldraw)
+│       ├── Tools (pen, arrow, rectangle, text)
+│       ├── Description textarea with validation
+│       └── Undo/Redo
 │
 └── Services/
     ├── screenshot.service.js

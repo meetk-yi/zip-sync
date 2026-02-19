@@ -9,14 +9,21 @@ export const submitFeedback = async (apiUrl, projectId, data) => {
     formData.append('metadata', JSON.stringify(data.metadata));
     formData.append('screenshot', data.screenshot);
 
+
     const response = await fetch(`${apiUrl}/api/feedback`, {
       method: 'POST',
       body: formData
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to submit feedback');
+      let message = 'Failed to submit feedback';
+      try {
+        const body = await response.json();
+        message = body.message || message;
+      } catch {
+        message = response.statusText || message;
+      }
+      throw new Error(message);
     }
 
     const result = await response.json();
