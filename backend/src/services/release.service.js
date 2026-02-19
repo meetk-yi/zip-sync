@@ -7,6 +7,7 @@ import crypto from "crypto";
 import fetch from "node-fetch";
 import ApiError from "../utils/apiError.js";
 import { generateReleaseHeader } from "../utils/headerUtils.js";
+import { getFeedbackWidgetScript } from "../utils/feedbackWidgetInjection.js";
 import { uploadFileToS3Multipart, uploadDirectoryToS3 } from "../utils/uploadFiletoS3.js";
 
 const prisma = new PrismaClient();
@@ -546,12 +547,8 @@ export const uploadReleaseVersionService = async (
 
     /* -------------------- 6. Inject HTML headers / scripts (SAFE) -------------------- */
     const rootHtmlPath = await findHtmlEntry(actualProjectPath);
-    const markerScript = `<script>
-window.markerConfig = {
-project: '68b6da8e7a78dd9ff9cff850',
-};
-!function(e,r,a){if(!e.__Marker){e.__Marker={};var t=[],n={__cs:t};["show","hide","isVisible","capture","cancelCapture","unload","reload","isExtensionInstalled","setReporter","clearReporter","setCustomData","on","off"].forEach(function(e){n[e]=function(){var r=Array.prototype.slice.call(arguments);r.unshift(e),t.push(r)}}),e.Marker=n;var s=r.createElement("script");s.async=1,s.src="https://edge.marker.io/latest/shim.js";var i=r.getElementsByTagName("script")[0];i.parentNode.insertBefore(s,i)}}(window,document);
-</script>`;
+    const apiUrl = process.env.BASE_URL || "http://localhost:5000";
+    const feedbackWidgetScript = getFeedbackWidgetScript(apiUrl, release.project.id);
     if (rootHtmlPath) {
         let html = fs.readFileSync(rootHtmlPath, "utf-8");
 
@@ -561,14 +558,14 @@ project: '68b6da8e7a78dd9ff9cff850',
         } else {
             let updated = false;
 
-            // Inject Marker script ONLY if <head> exists
+            // Inject feedback widget script (replaces marker.io) if not already present
             if (
-                !html.includes("window.markerConfig") &&
+                !html.includes("feedback-widget.min.js") &&
                 html.toLowerCase().includes("</head>")
             ) {
                 html = html.replace(
                     /<\/head>/i,
-                    `${markerScript}\n</head>`
+                    `${feedbackWidgetScript}\n</head>`
                 );
                 updated = true;
             }

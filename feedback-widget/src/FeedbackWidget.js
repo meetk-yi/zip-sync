@@ -65,6 +65,7 @@ const FeedbackWidget = ({ config }) => {
   const handleSubmit = async (description, blobToSubmit) => {
     setStep(STEPS.SUBMITTING);
     setError(null);
+    console.log("[feedback-widget] Submit started | apiUrl:", config.apiUrl, "| projectId:", config.projectId);
 
     try {
       const screenshotFile = blobToFile(blobToSubmit, "screenshot.png");
@@ -86,11 +87,13 @@ const FeedbackWidget = ({ config }) => {
       setResult(response);
       setSubmittedDescription(description);
       setStep(STEPS.SUCCESS);
+      console.log("[feedback-widget] Submit done | screenshotFile:", response?.screenshotFile);
 
       if (config.onSuccess) {
         config.onSuccess(response);
       }
     } catch (err) {
+      console.error("[feedback-widget] Submit error:", err.message);
       setError(err.message);
       setStep(STEPS.ANNOTATE);
 

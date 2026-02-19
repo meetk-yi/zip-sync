@@ -2,6 +2,7 @@ import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 import { generateProjectHeader } from "../utils/headerUtils.js";
+import { getFeedbackWidgetScript } from "../utils/feedbackWidgetInjection.js";
 import { createJiraTicketsFromSummary, testJiraConnection, getJiraProjectInfo } from "../utils/jiraIntegration.js";
 import multer from "multer";
 import path from "path";
@@ -898,32 +899,26 @@ router.post("/:id/upload", authenticateToken, upload.single("project"), async (r
           try {
             let htmlContent = fs.readFileSync(rootHtmlPath, 'utf-8');
 
-            // Marker.io script to inject
-            const markerScript = `<script>
-window.markerConfig = {
-              project: '66c70a4bc69f538671fe255f',
-              source: 'snippet'
-            };
-          !function(e,r,a){if(!e.__Marker){e.__Marker={};var t=[],n={__cs:t};["show","hide","isVisible","capture","cancelCapture","unload","reload","isExtensionInstalled","setReporter","setCustomData","on","off"].forEach(function(e){n[e]=function(){var r=Array.prototype.slice.call(arguments);r.unshift(e),t.push(r)}}),e.Marker=n;var s=r.createElement("script");s.async=1,s.src="https://edge.marker.io/latest/shim.js";var i=r.getElementsByTagName("script")[0];i.parentNode.insertBefore(s,i)}}(window,document);
-</script>`;
+            // Feedback widget script (replaces marker.io) - loads from backend, POSTs to /api/feedback
+            const apiUrl = config.BASE_URL || process.env.BASE_URL || "http://localhost:5000";
+            const feedbackWidgetScript = getFeedbackWidgetScript(apiUrl, projectId);
 
             // Get project header HTML using helper function
             const projectHeader = generateProjectHeader();
 
             let hasChanges = false;
 
-            // Check if Marker.io script is already injected to avoid duplicates
-            if (!htmlContent.includes('window.markerConfig')) {
-              // Inject Marker.io script before closing head tag
+            // Inject feedback widget script if not already present
+            if (!htmlContent.includes('feedback-widget.min.js')) {
               if (htmlContent.includes('</head>')) {
-                htmlContent = htmlContent.replace('</head>', `${markerScript}\n</head>`);
+                htmlContent = htmlContent.replace('</head>', `${feedbackWidgetScript}\n</head>`);
               } else if (htmlContent.includes('<head>')) {
-                htmlContent = htmlContent.replace('<head>', `<head>\n${markerScript}`);
+                htmlContent = htmlContent.replace('<head>', `<head>\n${feedbackWidgetScript}`);
               } else {
                 if (htmlContent.includes('<body>')) {
-                  htmlContent = htmlContent.replace('<body>', `<head>\n${markerScript}\n</head>\n<body>`);
+                  htmlContent = htmlContent.replace('<body>', `<head>\n${feedbackWidgetScript}\n</head>\n<body>`);
                 } else if (htmlContent.includes('<html>')) {
-                  htmlContent = htmlContent.replace('<html>', `<html>\n<head>\n${markerScript}\n</head>`);
+                  htmlContent = htmlContent.replace('<html>', `<html>\n<head>\n${feedbackWidgetScript}\n</head>`);
                 }
               }
               hasChanges = true;

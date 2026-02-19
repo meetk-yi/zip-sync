@@ -15,6 +15,8 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/apps", express.static(path.join(process.cwd(), "projects")));
+// Feedback widget script (copy feedback-widget/dist/feedback-widget.min.js to backend/public/)
+app.use("/static", express.static(path.join(process.cwd(), "public")));
 
 app.use("/api/auth", authRoutes);
 // app.use("/api/projects", projectRoutes);

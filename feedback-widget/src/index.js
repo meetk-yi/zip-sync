@@ -26,8 +26,11 @@ class FeedbackWidgetAPI {
         onError: config.onError || null
       };
 
-      // Create container if it doesn't exist
+      // Create container if it doesn't exist (body may be null if script ran from <head>)
       if (!this.container) {
+        if (!document.body) {
+          throw new Error('document.body is not available yet. Call init() after DOMContentLoaded or on load.');
+        }
         this.container = document.createElement('div');
         this.container.id = 'feedback-widget-root';
         this.container.style.position = 'fixed';
@@ -49,7 +52,7 @@ class FeedbackWidgetAPI {
       // Setup keyboard shortcut (Ctrl+Shift+F)
       this.setupKeyboardShortcut();
 
-      console.log('✅ Feedback Widget initialized successfully');
+      console.log('[feedback-widget] Initialized | apiUrl:', this.config.apiUrl, '| projectId:', this.config.projectId);
       return true;
     } catch (error) {
       console.error('❌ Feedback Widget initialization failed:', error);

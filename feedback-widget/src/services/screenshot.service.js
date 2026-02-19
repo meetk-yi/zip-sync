@@ -1,32 +1,51 @@
-// Screenshot Service - Capture page screenshots using html2canvas
+// Screenshot Service - Capture page screenshots (html2canvas-pro supports oklch/modern CSS colors)
+import html2canvas from 'html2canvas-pro';
 
-import html2canvas from 'html2canvas';
+// Shared options for better fidelity. foreignObjectRendering uses the browser's native
+// renderer so colors, gradients, and text match the live page (avoids oklch/gradient quirks).
+const getBaseOptions = (useForeignObject = true) => ({
+  allowTaint: true,
+  useCORS: true,
+  scale: window.devicePixelRatio || 1,
+  foreignObjectRendering: useForeignObject,
+  logging: false,
+});
+
+async function captureWithHtml2Canvas(element, options) {
+  try {
+    return await html2canvas(element, { ...getBaseOptions(true), ...options });
+  } catch (err) {
+    const msg = err?.message || String(err);
+    if (msg.includes('ForeignObject') || msg.includes('foreign') || msg.includes('security')) {
+      try {
+        return await html2canvas(element, { ...getBaseOptions(false), ...options });
+      } catch (fallbackErr) {
+        console.warn('[feedback-widget] ForeignObject fallback capture failed:', fallbackErr?.message);
+        throw fallbackErr;
+      }
+    }
+    throw err;
+  }
+}
 
 export const captureFullPage = async () => {
   try {
-    // Hide the feedback widget before capturing
     const widgetButton = document.querySelector('.feedback-widget-button');
     const widgetOverlay = document.querySelector('.feedback-widget-overlay');
-    
     if (widgetButton) widgetButton.style.display = 'none';
     if (widgetOverlay) widgetOverlay.style.display = 'none';
 
-    // Capture the page
-    const canvas = await html2canvas(document.body, {
-      allowTaint: true,
-      useCORS: true,
+    const canvas = await captureWithHtml2Canvas(document.body, {
       scrollY: -window.scrollY,
       scrollX: -window.scrollX,
       windowWidth: document.documentElement.scrollWidth,
       windowHeight: document.documentElement.scrollHeight,
       width: document.documentElement.scrollWidth,
-      height: document.documentElement.scrollHeight
+      height: document.documentElement.scrollHeight,
     });
 
-    // Show the widget again
     if (widgetButton) widgetButton.style.display = 'flex';
     if (widgetOverlay) widgetOverlay.style.display = 'flex';
-
     return canvas;
   } catch (error) {
     console.error('Screenshot capture failed:', error);
@@ -38,22 +57,22 @@ export const captureViewport = async () => {
   try {
     const widgetButton = document.querySelector('.feedback-widget-button');
     const widgetOverlay = document.querySelector('.feedback-widget-overlay');
-    
     if (widgetButton) widgetButton.style.display = 'none';
     if (widgetOverlay) widgetOverlay.style.display = 'none';
 
-    const canvas = await html2canvas(document.body, {
-      allowTaint: true,
-      useCORS: true,
-      width: window.innerWidth,
-      height: window.innerHeight,
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const canvas = await captureWithHtml2Canvas(document.body, {
+      width: w,
+      height: h,
+      windowWidth: w,
+      windowHeight: h,
       scrollY: -window.scrollY,
-      scrollX: -window.scrollX
+      scrollX: -window.scrollX,
     });
 
     if (widgetButton) widgetButton.style.display = 'flex';
     if (widgetOverlay) widgetOverlay.style.display = 'flex';
-
     return canvas;
   } catch (error) {
     console.error('Screenshot capture failed:', error);
