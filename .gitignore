@@ -16,4 +16,5 @@
 /node_modules/
 
 /feedback-widget/node_modules/
+/feedback-widget/build/
 /feedback-widget/.env
